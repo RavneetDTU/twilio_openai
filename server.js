@@ -12,6 +12,7 @@ import { createCallLog, updateCallLog } from './src/services/callService.js';
 import { updateConfig } from './src/utils/config.js';
 import smsRoutes from './src/routes/sms.js';
 import paymentRoutes from './src/routes/payment.js';
+import verifyRoutes from './src/routes/verify.js';
 import './src/config/firebase.js'; // Initialize Firebase
 
 dotenv.config();
@@ -47,6 +48,9 @@ app.use('/api/sms', smsRoutes);
 
 // Payment API routes
 app.use('/api/payment', paymentRoutes);
+
+// Phone Verification routes
+app.use('/api/verify', verifyRoutes);
 
 // 2. INCOMING CALL - Pass Caller Number to WebSocket
 app.all('/incoming-call', async (req, res) => {
