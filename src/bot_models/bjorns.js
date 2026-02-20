@@ -5,7 +5,7 @@ import { getBjornsPrompt } from '../prompts/bjorns_prompt.js';
 
 export const bjornPersona = {
     id: 'bjorn',
-    // name: bjornData.name,
+    name: "Bjorn's Steakhouse",
     // Configuration for OpenAI
     model: 'gpt-realtime-mini',
     voice: 'marin', // female
