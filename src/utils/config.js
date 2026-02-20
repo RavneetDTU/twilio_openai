@@ -17,38 +17,47 @@ export const updateConfig = async (updates) => {
 
         // 1. Read File
         const fileData = await fs.readFile(CONFIG_PATH, 'utf-8');
-        const currentConfig = JSON.parse(fileData);
+        const data = JSON.parse(fileData);
 
         // 2. Validation
         if (!updates.restaurantId) {
             throw new Error("Missing required field: restaurantId");
         }
-        if (updates.restaurantId !== currentConfig.restaurantId) {
-            throw new Error(`Invalid restaurantId. Expected: ${currentConfig.restaurantId}, Received: ${updates.restaurantId}`);
+
+        // 3. Find Restaurant by ID
+        const restaurantIndex = data.restaurants.findIndex(r => r.restaurantId === updates.restaurantId);
+
+        if (restaurantIndex === -1) {
+            throw new Error(`Restaurant not found with ID: ${updates.restaurantId}`);
         }
 
-        // 3. Smart Merge
+        const restaurant = data.restaurants[restaurantIndex];
+
+        // 4. Smart Merge
         // Merge settings if provided
         if (updates.settings) {
-            currentConfig.settings = {
-                ...currentConfig.settings,
+            restaurant.settings = {
+                ...restaurant.settings,
                 ...updates.settings
             };
         }
 
         // Merge operatingHours if provided
         if (updates.operatingHours) {
-            currentConfig.operatingHours = {
-                ...currentConfig.operatingHours,
+            restaurant.operatingHours = {
+                ...restaurant.operatingHours,
                 ...updates.operatingHours
             };
         }
 
-        // 4. Write File
-        await fs.writeFile(CONFIG_PATH, JSON.stringify(currentConfig, null, 2), 'utf-8');
+        // 5. Update the restaurant in the array
+        data.restaurants[restaurantIndex] = restaurant;
 
-        console.log("✅ Config updated successfully.");
-        return currentConfig;
+        // 6. Write File
+        await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8');
+
+        console.log(`✅ Config updated successfully for ${restaurant.name}`);
+        return restaurant;
 
     } catch (error) {
         console.error("❌ Config Update Error:", error);

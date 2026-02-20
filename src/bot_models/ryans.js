@@ -1,12 +1,15 @@
-import { RYANS_STEAKHOUSE_PROMPT } from '../prompts/ryans_prompt.js';
+// src/services/models/ryan.js
+import { getRyansPrompt } from '../prompts/ryans_prompt.js';
 
 export const ryanPersona = {
-    id: 'billy',
-    name: "Billy's Steakhouse",
+    id: 'ryan',
+    name: "Ryan's Steakhouse",
     // Configuration for OpenAI
-    model: 'gpt-4o-realtime-preview', // Supports transcription
-    voice: 'marin', // alloy-female
+    model: 'gpt-realtime-mini', // Supports transcription
+    voice: 'marin', // female
     temperature: 0.8,
-    // The System Prompt
-    instructions: RYANS_STEAKHOUSE_PROMPT,
+    // The System Prompt (dynamically generated)
+    get instructions() {
+        return getRyansPrompt();
+    },
 };

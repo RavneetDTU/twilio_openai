@@ -12,18 +12,24 @@ export function getBjornsPrompt() {
     // We clear the cache so if you updated the price via API, we see it immediately.
     const jsonPath = "./prompts.json"; // Ensure this path points to your actual JSON file
     delete require.cache[require.resolve(jsonPath)];
-    const promptsConfig = require(jsonPath);
+    const data = require(jsonPath);
 
-    // 2. EXTRACT SETTINGS
-    const { depositAmount, currency, timezone } = promptsConfig.settings;
-    const allHours = promptsConfig.operatingHours;
+    // 2. FIND BJORN'S RESTAURANT
+    const bjornConfig = data.restaurants.find(r => r.restaurantId === 'bjorns_003');
+    if (!bjornConfig) {
+        throw new Error("Bjorn's restaurant configuration not found!");
+    }
 
-    // 3. CALCULATE "TODAY" (Dynamic Time)
+    // 3. EXTRACT SETTINGS
+    const { depositAmount, currency, timezone } = bjornConfig.settings;
+    const allHours = bjornConfig.operatingHours;
+
+    // 4. CALCULATE "TODAY" (Dynamic Time)
     // This runs instantly when the call happens, so it's always the correct day.
     const todayName = new Date().toLocaleDateString('en-ZA', { weekday: 'long', timeZone: timezone });
     const todaySchedule = allHours[todayName] || { open: "Closed", close: "Closed" };
 
-    // 4. GENERATE TIME CONTEXT STRING
+    // 5. GENERATE TIME CONTEXT STRING
     const hoursContext = `
 🕒 Operating Hours Context
 - Today is ${todayName}.
@@ -33,7 +39,7 @@ export function getBjornsPrompt() {
 `;
 
     console.log(`✅ Generating Prompt for: ${todayName} (Open: ${todaySchedule.open})`);
-    // 5. RETURN THE FINAL PROMPT STRING
+    // 6. RETURN THE FINAL PROMPT STRING
     // We inject the variables we just calculated above.
     return `
 You are an AI voice assistant for Bjorn’s Steak House, a fine-dining restaurant specializing in premium steaks.

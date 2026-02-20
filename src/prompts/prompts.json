@@ -1,39 +1,121 @@
 {
-    "restaurantId": "resto_bjorns_001",
-    "name": "Bjorn's Steakhouse",
-    "settings": {
-        "depositAmount": 750,
+  "restaurants": [
+    {
+      "restaurantId": "billys_001",
+      "name": "Billy's Steakhouse",
+      "settings": {
+        "depositAmount": 500,
         "currency": "rand",
         "timezone": "Africa/Johannesburg"
-    },
-    "operatingHours": {
+      },
+      "operatingHours": {
         "Monday": {
-            "open": "12:00 PM",
-            "close": "10:00 PM"
+          "open": "12:00 PM",
+          "close": "10:00 PM"
         },
         "Tuesday": {
-            "open": "12:00 PM",
-            "close": "10:00 PM"
+          "open": "12:00 PM",
+          "close": "10:00 PM"
         },
         "Wednesday": {
-            "open": "12:00 PM",
-            "close": "10:00 PM"
+          "open": "12:00 PM",
+          "close": "10:00 PM"
         },
         "Thursday": {
-            "open": "12:00 PM",
-            "close": "10:00 PM"
+          "open": "12:00 PM",
+          "close": "10:00 PM"
         },
         "Friday": {
-            "open": "12:00 PM",
-            "close": "11:00 PM"
+          "open": "12:00 PM",
+          "close": "11:00 PM"
         },
         "Saturday": {
-            "open": "11:00 AM",
-            "close": "11:00 PM"
+          "open": "11:00 AM",
+          "close": "11:00 PM"
         },
         "Sunday": {
-            "open": "11:00 AM",
-            "close": "9:00 PM"
+          "open": "11:00 AM",
+          "close": "9:00 PM"
         }
+      }
+    },
+    {
+      "restaurantId": "ryans_002",
+      "name": "Ryan's Steakhouse",
+      "settings": {
+        "depositAmount": 600,
+        "currency": "rand",
+        "timezone": "Africa/Johannesburg"
+      },
+      "operatingHours": {
+        "Monday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Tuesday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Wednesday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Thursday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Friday": {
+          "open": "12:00 PM",
+          "close": "11:00 PM"
+        },
+        "Saturday": {
+          "open": "11:00 AM",
+          "close": "11:00 PM"
+        },
+        "Sunday": {
+          "open": "11:00 AM",
+          "close": "9:00 PM"
+        }
+      }
+    },
+    {
+      "restaurantId": "bjorns_003",
+      "name": "Bjorn's Steakhouse",
+      "settings": {
+        "depositAmount": 500,
+        "currency": "rand",
+        "timezone": "Africa/Johannesburg"
+      },
+      "operatingHours": {
+        "Monday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Tuesday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Wednesday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Thursday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Friday": {
+          "open": "12:00 PM",
+          "close": "11:00 PM"
+        },
+        "Saturday": {
+          "open": "11:00 AM",
+          "close": "11:00 PM"
+        },
+        "Sunday": {
+          "open": "11:00 AM",
+          "close": "9:00 PM"
+        }
+      }
     }
+  ]
 }
