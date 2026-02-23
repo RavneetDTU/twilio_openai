@@ -48,8 +48,10 @@ router.get('/:paymentId', async (req, res) => {
                 customerName: callData.booking.name,
                 phoneNumber: callData.booking.phoneNo,
                 numberOfGuests: callData.booking.guests,
-                bookingTime: callData.booking.bookingTime,
-                allergies: callData.booking.allergy,
+                date: callData.booking.date,
+                time: callData.booking.time,
+                allergy: callData.booking.allergy,
+                notes: callData.booking.notes,
             },
             restaurant: {
                 id: callData.restaurantId,

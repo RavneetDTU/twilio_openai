@@ -45,6 +45,7 @@ class SmsService {
      * @param {string} params.customerName
      * @param {string} params.customerPhone
      * @param {number} params.numberOfGuests
+     * @param {string} params.bookingDate
      * @param {string} params.bookingTime
      * @param {string} params.paymentId
      * @param {string} params.restaurantName
@@ -53,6 +54,7 @@ class SmsService {
         customerName,
         customerPhone,
         numberOfGuests,
+        bookingDate,
         bookingTime,
         paymentId,
         restaurantName = 'Our Restaurant'
@@ -75,7 +77,7 @@ class SmsService {
 
             const message = `Dear ${customerName},
 
-Thank you for your reservation! We've reserved a table for ${numberOfGuests} ${numberOfGuests === 1 ? 'person' : 'people'} at ${restaurantName}${bookingTime ? ` on ${bookingTime}` : ''}.
+Thank you for your reservation! We've reserved a table for ${numberOfGuests} ${numberOfGuests === 1 ? 'person' : 'people'} at ${restaurantName}${bookingDate ? ` on ${bookingDate}` : ''}${bookingTime ? ` at ${bookingTime}` : ''}.
 
 Please secure your booking by completing payment here:
 ${paymentLink}
@@ -118,7 +120,7 @@ ${restaurantName}`;
      * @param {string} paymentId - UUID payment identifier
      */
     async sendAutomatedSms(bookingData, paymentId) {
-        const { name, phoneNo, guests, bookingTime } = bookingData;
+        const { name, phoneNo, guests, date, time } = bookingData;
 
         if (!name || !phoneNo || !guests) {
             console.warn('⚠️ Missing required booking data for SMS');
@@ -132,7 +134,8 @@ ${restaurantName}`;
             customerName: name,
             customerPhone: phoneNo,
             numberOfGuests: guests,
-            bookingTime: bookingTime || null,
+            bookingDate: date || null,
+            bookingTime: time || null,
             paymentId
         });
     }

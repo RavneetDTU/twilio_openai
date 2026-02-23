@@ -15,7 +15,7 @@ export function getBjornsPrompt() {
     const data = require(jsonPath);
 
     // 2. FIND BJORN'S RESTAURANT
-    const bjornConfig = data.restaurants.find(r => r.restaurantId === 'bjorns_003');
+    const bjornConfig = data.restaurants.find(r => r.restaurantId === '3');
     if (!bjornConfig) {
         throw new Error("Bjorn's restaurant configuration not found!");
     }
