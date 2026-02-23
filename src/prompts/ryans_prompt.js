@@ -14,7 +14,7 @@ export function getRyansPrompt() {
     const data = require(jsonPath);
 
     // 2. FIND RYAN'S RESTAURANT
-    const ryanConfig = data.restaurants.find(r => r.restaurantId === 'ryans_002');
+    const ryanConfig = data.restaurants.find(r => r.restaurantId === '2');
     if (!ryanConfig) {
         throw new Error("Ryan's restaurant configuration not found!");
     }

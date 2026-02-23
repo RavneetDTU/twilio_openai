@@ -1,7 +1,7 @@
 {
   "restaurants": [
     {
-      "restaurantId": "billys_001",
+      "restaurantId": "1",
       "name": "Billy's Steakhouse",
       "settings": {
         "depositAmount": 500,
@@ -40,7 +40,7 @@
       }
     },
     {
-      "restaurantId": "ryans_002",
+      "restaurantId": "2",
       "name": "Ryan's Steakhouse",
       "settings": {
         "depositAmount": 600,
@@ -79,7 +79,7 @@
       }
     },
     {
-      "restaurantId": "bjorns_003",
+      "restaurantId": "3",
       "name": "Bjorn's Steakhouse",
       "settings": {
         "depositAmount": 500,

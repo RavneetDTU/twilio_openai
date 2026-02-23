@@ -42,10 +42,12 @@ const CallLogSchema = new mongoose.Schema({
     },
     booking: {
         name: { type: String, default: null },
-        bookingTime: { type: String, default: null },
+        date: { type: String, default: null },
+        time: { type: String, default: null },
         guests: { type: Number, default: null },
         phoneNo: { type: String, default: null },
-        allergy: { type: String, default: null }
+        allergy: { type: String, default: null },
+        notes: { type: String, default: null }
     },
     duration: {
         type: Number,

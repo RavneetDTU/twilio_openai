@@ -14,7 +14,7 @@ export function getBillysPrompt() {
     const data = require(jsonPath);
 
     // 2. FIND BILLY'S RESTAURANT
-    const billyConfig = data.restaurants.find(r => r.restaurantId === 'billys_001');
+    const billyConfig = data.restaurants.find(r => r.restaurantId === '1');
     if (!billyConfig) {
         throw new Error("Billy's restaurant configuration not found!");
     }

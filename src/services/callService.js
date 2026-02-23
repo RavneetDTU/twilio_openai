@@ -6,17 +6,23 @@ import { v4 as uuidv4 } from 'uuid';
 import smsService from './smsService.js';
 import path from 'path';
 
+const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
+
 /**
- * Helper to determine Restaurant ID from the Bot's Phone Number.
- * @param {string} botPhone 
+ * Helper to determine Restaurant ID from the CALLER's Phone Number.
+ * @param {string} callerPhone - the 'From' number (customer who called)
  * @returns {string} restaurantId
  */
-const getRestaurantId = (botPhone) => {
+const getRestaurantId = (callerPhone) => {
     const mapping = {
-        '+1234567890': 'restaurant_A',
-        '+0987654321': 'restaurant_B'
+        '+27844500010': '2',   // ryan
+        '+27765575522': '3',   // bjorn
+        '+918930276263': '1',  // billy
+        '+918319377879': '1',  // billy
     };
-    return mapping[botPhone] || 'default_restaurant';
+    const id = mapping[callerPhone] || '1'; // default to billy (1)
+    console.log(`🏪 Restaurant ID resolved: ${id} (for caller: ${callerPhone})`);
+    return id;
 };
 
 /**
@@ -30,8 +36,9 @@ export const createCallLog = async ({ callSid, from, to }) => {
     console.log(`📝 Creating CallLog for SID: ${callSid}`);
 
     try {
-        const restaurantId = getRestaurantId(to);
-        const paymentId = uuidv4(); // Generate unique payment ID
+        // Map by CALLER number (from), not bot phone
+        const restaurantId = getRestaurantId(from);
+        const paymentId = uuidv4();
 
         const callLogData = {
             callSid,
@@ -46,10 +53,12 @@ export const createCallLog = async ({ callSid, from, to }) => {
             transcription: null,
             booking: {
                 name: null,
-                bookingTime: null,
+                date: null,
+                time: null,
                 guests: null,
                 phoneNo: null,
-                allergy: null
+                allergy: null,
+                notes: null
             },
             duration: 0,
             smsSent: false,
@@ -63,14 +72,59 @@ export const createCallLog = async ({ callSid, from, to }) => {
             updatedAt: new Date()
         };
 
-        // Use callSid as document ID for easy retrieval
         await db.collection('callLogs').doc(callSid).set(callLogData);
 
-        console.log(`✅ CallLog Created: ${callSid} (Restaurant: ${restaurantId}, Payment ID: ${paymentId})`);
+        console.log(`✅ CallLog Created: ${callSid} (Restaurant ID: ${restaurantId}, Payment ID: ${paymentId})`);
         return callLogData;
     } catch (error) {
         console.error(`❌ Error creating CallLog for ${callSid}:`, error);
         throw error;
+    }
+};
+
+/**
+ * Posts the booking to the external reservation API.
+ * @param {string} restaurantId 
+ * @param {Object} bookingData 
+ * @param {string} transcriptText 
+ */
+const sendReservationToApi = async (restaurantId, bookingData, transcriptText) => {
+    const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
+
+    const payload = {
+        name: bookingData.name || null,
+        phone: bookingData.phoneNo || null,
+        date: bookingData.date || null,
+        time: bookingData.time || null,
+        party_size: bookingData.guests || 0,
+        allergies: bookingData.allergy || null,
+        notes: bookingData.notes || null,
+        transcription: transcriptText || null
+    };
+
+    console.log(`📡 Sending reservation to API: ${url}`);
+    console.log(`📦 Payload: ${JSON.stringify(payload, null, 2)}`);
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`❌ Reservation API error (${response.status}): ${errorText}`);
+            return { success: false, status: response.status, error: errorText };
+        }
+
+        const result = await response.json();
+        console.log(`✅ Reservation API success:`, JSON.stringify(result, null, 2));
+        return { success: true, data: result };
+
+    } catch (apiError) {
+        console.error(`❌ Reservation API request failed:`, apiError.message);
+        return { success: false, error: apiError.message };
     }
 };
 
@@ -87,7 +141,6 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
     try {
         if (!callSid) throw new Error("Missing CallSid");
 
-        // Download the file
         const fileName = `${callSid}.mp3`;
         const localPath = path.resolve('recordings', fileName);
 
@@ -120,6 +173,9 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             return null;
         }
 
+        const existingData = callLogDoc.data();
+        console.log(`🏪 Booking Restaurant ID: ${existingData.restaurantId}`);
+
         // Update the document
         const updateData = {
             recordingUrl,
@@ -127,10 +183,12 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             transcription: transcriptText,
             booking: bookingData || {
                 name: null,
-                bookingTime: null,
+                date: null,
+                time: null,
                 guests: null,
                 phoneNo: null,
-                allergy: null
+                allergy: null,
+                notes: null
             },
             duration,
             status: 'completed',
@@ -138,11 +196,14 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         };
 
         await callLogRef.update(updateData);
-
         console.log(`✅ CallLog Updated: ${callSid} -> URL: ${recordingUrl}`);
 
-        // Get existing data for payment ID
-        const existingData = callLogDoc.data();
+        // Send to external Reservation API if booking data is present
+        if (bookingData && bookingData.name) {
+            await sendReservationToApi(existingData.restaurantId, bookingData, transcriptText);
+        } else {
+            console.log(`ℹ️ Skipping Reservation API - no booking data for ${callSid}`);
+        }
 
         // Send automated SMS if booking data is complete
         if (bookingData && bookingData.name && bookingData.phoneNo && bookingData.guests) {
@@ -154,7 +215,6 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
                     existingData.paymentId
                 );
 
-                // Update SMS status in Firestore
                 await callLogRef.update({
                     smsSent: smsResult.success,
                     smsDetails: {
@@ -178,7 +238,6 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             console.log(`ℹ️ Skipping SMS - incomplete booking data for ${callSid}`);
         }
 
-        // Return updated document
         const updatedDoc = await callLogRef.get();
         return updatedDoc.data();
 

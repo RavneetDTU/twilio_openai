@@ -12,7 +12,7 @@ export function getPersonaByNumber(callerNumber) {
     if (callerNumber === '+918930276263' || callerNumber === '+27844500010') {
         return ryanPersona; // female
     }
-    else if (callerNumber === '+918319377879'  || callerNumber === '+27765575522') {
+    else if (callerNumber === '+27765575522') {
         return bjornPersona; // female
     }
 
