@@ -9,20 +9,22 @@ import path from 'path';
 const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
 
 /**
- * Helper to determine Restaurant ID from the CALLER's Phone Number.
- * @param {string} callerPhone - the 'From' number (customer who called)
- * @returns {string} restaurantId
+ * Single map: caller phone → { id, name }
+ * Any unknown number defaults to Billy's Steakhouse.
  */
-const getRestaurantId = (callerPhone) => {
-    const mapping = {
-        '+27844500010': '2',   // ryan
-        '+27765575522': '3',   // bjorn
-        '+918930276263': '1',  // billy
-        '+918319377879': '1',  // billy
-    };
-    const id = mapping[callerPhone] || '1'; // default to billy (1)
-    console.log(`🏪 Restaurant ID resolved: ${id} (for caller: ${callerPhone})`);
-    return id;
+const RESTAURANT_MAP = {
+    '+27844500010': { id: '2', name: "Ryan's Steakhouse" },
+    '+27765575522': { id: '3', name: "Bjorn's Steakhouse" },
+    '+918930276263': { id: '1', name: "Billy's Steakhouse" },
+    '+918319377879': { id: '1', name: "Billy's Steakhouse" },
+};
+
+const DEFAULT_RESTAURANT = { id: '1', name: "Billy's Steakhouse" };
+
+const getRestaurantInfo = (callerPhone) => {
+    const info = RESTAURANT_MAP[callerPhone] || DEFAULT_RESTAURANT;
+    console.log(`🏪 Restaurant resolved: ${info.name} (ID: ${info.id}) for caller: ${callerPhone}`);
+    return info;
 };
 
 /**
@@ -36,8 +38,7 @@ export const createCallLog = async ({ callSid, from, to }) => {
     console.log(`📝 Creating CallLog for SID: ${callSid}`);
 
     try {
-        // Map by CALLER number (from), not bot phone
-        const restaurantId = getRestaurantId(from);
+        const { id: restaurantId, name: restaurantName } = getRestaurantInfo(from);
         const paymentId = uuidv4();
 
         const callLogData = {
@@ -45,6 +46,7 @@ export const createCallLog = async ({ callSid, from, to }) => {
             customerPhone: from,
             botPhone: to,
             restaurantId,
+            restaurantName,
             paymentId,
             status: 'active',
             startTime: new Date(),
@@ -74,7 +76,7 @@ export const createCallLog = async ({ callSid, from, to }) => {
 
         await db.collection('callLogs').doc(callSid).set(callLogData);
 
-        console.log(`✅ CallLog Created: ${callSid} (Restaurant ID: ${restaurantId}, Payment ID: ${paymentId})`);
+        console.log(`✅ CallLog Created: ${callSid} (Restaurant: ${restaurantName} [${restaurantId}], Payment ID: ${paymentId})`);
         return callLogData;
     } catch (error) {
         console.error(`❌ Error creating CallLog for ${callSid}:`, error);
@@ -174,7 +176,7 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         }
 
         const existingData = callLogDoc.data();
-        console.log(`🏪 Booking Restaurant ID: ${existingData.restaurantId}`);
+        console.log(`🏪 Booking Restaurant: ${existingData.restaurantName} (ID: ${existingData.restaurantId})`);
 
         // Update the document
         const updateData = {
@@ -212,7 +214,8 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             try {
                 const smsResult = await smsService.sendAutomatedSms(
                     bookingData,
-                    existingData.paymentId
+                    existingData.paymentId,
+                    existingData.restaurantName
                 );
 
                 await callLogRef.update({
