@@ -10,7 +10,7 @@ class SmsService {
             process.env.TWILIO_AUTH_TOKEN
         );
         this.fromNumber = process.env.TWILIO_PHONE_NUMBER;
-        this.paymentBaseUrl = process.env.PAYMENT_FRONTEND_URL || 'http://localhost:3000';
+        this.paymentBaseUrl = process.env.PAYMENT_FRONTEND_URL || 'https://mybookip.vercel.app';
     }
 
     /**
@@ -19,11 +19,17 @@ class SmsService {
      * @param {string} defaultCountryCode - Default country code (e.g., '91' for India, '1' for US)
      * @returns {string} Formatted phone number
      */
-    formatPhoneNumber(phoneNumber, defaultCountryCode = '91') {
+    formatPhoneNumber(phoneNumber, defaultCountryCode = '27') {
         if (!phoneNumber) return null;
 
         // Remove all non-digit characters
         let cleaned = phoneNumber.replace(/\D/g, '');
+
+        if (cleaned == "8319377879" || cleaned == "8930276263") {
+            defaultCountryCode = "91";
+        } else {
+            defaultCountryCode = "27";
+        }
 
         // If already starts with country code, add + and return
         if (cleaned.startsWith(defaultCountryCode) && cleaned.length > defaultCountryCode.length) {
@@ -119,7 +125,7 @@ ${restaurantName}`;
      * @param {Object} bookingData - Extracted booking data from call
      * @param {string} paymentId - UUID payment identifier
      */
-    async sendAutomatedSms(bookingData, paymentId) {
+    async sendAutomatedSms(bookingData, paymentId, restaurantName = "Billy's Steakhouse") {
         const { name, phoneNo, guests, date, time } = bookingData;
 
         if (!name || !phoneNo || !guests) {
@@ -136,7 +142,8 @@ ${restaurantName}`;
             numberOfGuests: guests,
             bookingDate: date || null,
             bookingTime: time || null,
-            paymentId
+            paymentId,
+            restaurantName
         });
     }
 }
