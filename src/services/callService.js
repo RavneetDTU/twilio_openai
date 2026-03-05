@@ -17,6 +17,7 @@ const RESTAURANT_MAP = {
     '+27765575522': { id: '3', name: "Bjorn's Steakhouse" },
     '+918930276263': { id: '1', name: "Billy's Steakhouse" },
     '+918319377879': { id: '1', name: "Billy's Steakhouse" },
+    '+27210073477': { id: '4', name: "Wine Tasting Terrance" },
 };
 
 const DEFAULT_RESTAURANT = { id: '1', name: "Billy's Steakhouse" };
