@@ -1,4 +1,5 @@
 import Twilio from 'twilio';
+import logger from '../utils/logger.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -77,7 +78,7 @@ class SmsService {
                 throw new Error('Invalid phone number provided');
             }
 
-            console.log(`📱 Formatted phone: ${customerPhone} -> ${formattedPhone}`);
+            logger.info(`📱 Formatted phone: ${customerPhone} -> ${formattedPhone}`);
 
             const paymentLink = `${this.paymentBaseUrl}/payment/${paymentId}`;
 
@@ -93,7 +94,7 @@ We look forward to serving you!
 Best regards,
 ${restaurantName}`;
 
-            console.log(`📱 Sending SMS to ${formattedPhone}...`);
+            logger.info(`📱 Sending SMS to ${formattedPhone}...`);
 
             const smsResponse = await this.client.messages.create({
                 body: message,
@@ -101,7 +102,7 @@ ${restaurantName}`;
                 to: formattedPhone,
             });
 
-            console.log(`✅ SMS sent successfully! SID: ${smsResponse.sid}`);
+            logger.info(`✅ SMS sent successfully! SID: ${smsResponse.sid}`);
 
             return {
                 success: true,
@@ -111,7 +112,7 @@ ${restaurantName}`;
             };
 
         } catch (error) {
-            console.error(`❌ SMS sending failed:`, error.message);
+            logger.error(`❌ SMS sending failed: ${error.message}`);
             return {
                 success: false,
                 error: error.message,
@@ -129,7 +130,7 @@ ${restaurantName}`;
         const { name, phoneNo, guests, date, time } = bookingData;
 
         if (!name || !phoneNo || !guests) {
-            console.warn('⚠️ Missing required booking data for SMS');
+            logger.warn('⚠️ Missing required booking data for SMS');
             return {
                 success: false,
                 error: 'Missing required booking data (name, phone, or guests)'

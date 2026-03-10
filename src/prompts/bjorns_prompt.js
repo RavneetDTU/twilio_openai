@@ -1,7 +1,9 @@
 
 
 
+
 import { createRequire } from "module";
+import logger from '../utils/logger.js';
 const require = createRequire(import.meta.url);
 
 // We export a FUNCTION now, not a constant string.
@@ -38,7 +40,7 @@ export function getBjornsPrompt() {
 - Do NOT accept any booking for a time we are closed.
 `;
 
-    console.log(`✅ Generating Prompt for: ${todayName} (Open: ${todaySchedule.open})`);
+    logger.info(`✅ Generating Prompt for: ${todayName} (Open: ${todaySchedule.open})`);
     // 6. RETURN THE FINAL PROMPT STRING
     // We inject the variables we just calculated above.
     return `

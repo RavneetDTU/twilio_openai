@@ -1,4 +1,5 @@
 import { db } from '../config/firebase.js';
+import logger from '../utils/logger.js';
 import { downloadFile } from '../utils/download.js';
 import { transcribeAudio } from '../utils/transcription.js';
 import { extractBookingData } from '../utils/extraction.js';
@@ -24,7 +25,7 @@ const DEFAULT_RESTAURANT = { id: '1', name: "Billy's Steakhouse" };
 
 const getRestaurantInfo = (callerPhone) => {
     const info = RESTAURANT_MAP[callerPhone] || DEFAULT_RESTAURANT;
-    console.log(`🏪 Restaurant resolved: ${info.name} (ID: ${info.id}) for caller: ${callerPhone}`);
+    logger.info(`🏪 Restaurant resolved: ${info.name} (ID: ${info.id}) for caller: ${callerPhone}`);
     return info;
 };
 
@@ -36,7 +37,7 @@ const getRestaurantInfo = (callerPhone) => {
  * @param {string} params.to - Bot Phone
  */
 export const createCallLog = async ({ callSid, from, to }) => {
-    console.log(`📝 Creating CallLog for SID: ${callSid}`);
+    logger.info(`📝 Creating CallLog for SID: ${callSid}`);
 
     try {
         const { id: restaurantId, name: restaurantName } = getRestaurantInfo(from);
@@ -77,10 +78,10 @@ export const createCallLog = async ({ callSid, from, to }) => {
 
         await db.collection('callLogs').doc(callSid).set(callLogData);
 
-        console.log(`✅ CallLog Created: ${callSid} (Restaurant: ${restaurantName} [${restaurantId}], Payment ID: ${paymentId})`);
+        logger.info(`✅ CallLog Created: ${callSid} (Restaurant: ${restaurantName} [${restaurantId}], Payment ID: ${paymentId})`);
         return callLogData;
     } catch (error) {
-        console.error(`❌ Error creating CallLog for ${callSid}:`, error);
+        logger.error(`❌ Error creating CallLog for ${callSid}: ${error.message}`);
         throw error;
     }
 };
@@ -105,8 +106,8 @@ const sendReservationToApi = async (restaurantId, bookingData, transcriptText) =
         transcription: transcriptText || null
     };
 
-    console.log(`📡 Sending reservation to API: ${url}`);
-    console.log(`📦 Payload: ${JSON.stringify(payload, null, 2)}`);
+    logger.info(`📡 Sending reservation to API: ${url}`);
+    logger.info(`📦 Payload: ${JSON.stringify(payload, null, 2)}`);
 
     try {
         const response = await fetch(url, {
@@ -117,16 +118,16 @@ const sendReservationToApi = async (restaurantId, bookingData, transcriptText) =
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`❌ Reservation API error (${response.status}): ${errorText}`);
+            logger.error(`❌ Reservation API error (${response.status}): ${errorText}`);
             return { success: false, status: response.status, error: errorText };
         }
 
         const result = await response.json();
-        console.log(`✅ Reservation API success:`, JSON.stringify(result, null, 2));
+        logger.info(`✅ Reservation API success: ${JSON.stringify(result, null, 2)}`);
         return { success: true, data: result };
 
     } catch (apiError) {
-        console.error(`❌ Reservation API request failed:`, apiError.message);
+        logger.error(`❌ Reservation API request failed: ${apiError.message}`);
         return { success: false, error: apiError.message };
     }
 };
@@ -139,7 +140,7 @@ const sendReservationToApi = async (restaurantId, bookingData, transcriptText) =
  * @param {number} params.duration
  */
 export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
-    console.log(`📝 Updating CallLog for SID: ${callSid}`);
+    logger.info(`📝 Updating CallLog for SID: ${callSid}`);
 
     try {
         if (!callSid) throw new Error("Missing CallSid");
@@ -164,7 +165,7 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             }
 
         } catch (processErr) {
-            console.error(`❌ Failed processing (download/transcribe/extract) for ${callSid}:`, processErr);
+            logger.error(`❌ Failed processing (download/transcribe/extract) for ${callSid}: ${processErr.message}`);
         }
 
         // Get reference to the document
@@ -172,12 +173,12 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         const callLogDoc = await callLogRef.get();
 
         if (!callLogDoc.exists) {
-            console.warn(`⚠️ Warning: No active CallLog found for SID: ${callSid}`);
+            logger.warn(`⚠️ Warning: No active CallLog found for SID: ${callSid}`);
             return null;
         }
 
         const existingData = callLogDoc.data();
-        console.log(`🏪 Booking Restaurant: ${existingData.restaurantName} (ID: ${existingData.restaurantId})`);
+        logger.info(`🏪 Booking Restaurant: ${existingData.restaurantName} (ID: ${existingData.restaurantId})`);
 
         // Update the document
         const updateData = {
@@ -199,18 +200,18 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         };
 
         await callLogRef.update(updateData);
-        console.log(`✅ CallLog Updated: ${callSid} -> URL: ${recordingUrl}`);
+        logger.info(`✅ CallLog Updated: ${callSid} -> URL: ${recordingUrl}`);
 
         // Send to external Reservation API if booking data is present
         if (bookingData && bookingData.name) {
             await sendReservationToApi(existingData.restaurantId, bookingData, transcriptText);
         } else {
-            console.log(`ℹ️ Skipping Reservation API - no booking data for ${callSid}`);
+            logger.info(`ℹ️ Skipping Reservation API - no booking data for ${callSid}`);
         }
 
         // Send automated SMS if booking data is complete
         if (bookingData && bookingData.name && bookingData.phoneNo && bookingData.guests) {
-            console.log(`📱 Attempting to send automated SMS for ${callSid}...`);
+            logger.info(`📱 Attempting to send automated SMS for ${callSid}...`);
 
             try {
                 const smsResult = await smsService.sendAutomatedSms(
@@ -231,22 +232,22 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
                 });
 
                 if (smsResult.success) {
-                    console.log(`✅ Automated SMS sent for ${callSid} (SID: ${smsResult.sid})`);
+                    logger.info(`✅ Automated SMS sent for ${callSid} (SID: ${smsResult.sid})`);
                 } else {
-                    console.warn(`⚠️ SMS failed for ${callSid}: ${smsResult.error}`);
+                    logger.warn(`⚠️ SMS failed for ${callSid}: ${smsResult.error}`);
                 }
             } catch (smsError) {
-                console.error(`❌ SMS error for ${callSid}:`, smsError.message);
+                logger.error(`❌ SMS error for ${callSid}: ${smsError.message}`);
             }
         } else {
-            console.log(`ℹ️ Skipping SMS - incomplete booking data for ${callSid}`);
+            logger.info(`ℹ️ Skipping SMS - incomplete booking data for ${callSid}`);
         }
 
         const updatedDoc = await callLogRef.get();
         return updatedDoc.data();
 
     } catch (error) {
-        console.error(`❌ Error updating CallLog for ${callSid}:`, error);
+        logger.error(`❌ Error updating CallLog for ${callSid}: ${error.message}`);
         throw error;
     }
 };

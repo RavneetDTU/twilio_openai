@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import logger from './src/utils/logger.js';
 import WebSocket, { WebSocketServer } from "ws";
 import dotenv from 'dotenv';
 import bodyParser from 'body-parser';
@@ -19,7 +20,7 @@ dotenv.config();
 const { OPENAI_API_KEY, PORT = 9000 } = process.env;
 
 if (!OPENAI_API_KEY) {
-    console.error('Missing OpenAI API key.');
+    logger.error('Missing OpenAI API key.');
     process.exit(1);
 }
 
@@ -57,15 +58,16 @@ app.all('/incoming-call', async (req, res) => {
     const callerNumber = req.body.From || "Unknown";
     const callSid = req.body.CallSid;
     const to = req.body.To || "Unknown";
-
-    console.log(`📞 Incoming call from: ${callerNumber} to ${to}`);
-    console.log(`🆔 CallSid: ${callSid}`);
+     
+    logger.info('#---------------------NEXT CALL LOG--------------------------------#')
+    logger.info(`📞 Incoming call from: ${callerNumber} to ${to}`);
+    logger.info(`🆔 CallSid: ${callSid}`);
 
     // Create Call Log in DB
     try {
         await createCallLog({ callSid, from: callerNumber, to });
     } catch (dbError) {
-        console.error("❌ Failed to create call log:", dbError);
+        logger.error(`❌ Failed to create call log: ${dbError.message}`);
     }
 
     if (callSid) {
@@ -77,8 +79,8 @@ app.all('/incoming-call', async (req, res) => {
             }
 
         )
-            .then(rec => console.log(`⏺️ Dual-channel recording started: ${rec.sid}`))
-            .catch(err => console.error("❌ Recording failed:", err));
+            .then(rec => logger.info(`⏺️ Dual-channel recording started: ${rec.sid}`))
+            .catch(err => logger.error(`❌ Recording failed: ${err.message}`));
     }
 
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
@@ -96,7 +98,7 @@ app.all('/incoming-call', async (req, res) => {
 
 // handle recording completion
 app.post('/recording-complete', async (req, res) => {
-    console.log("📨 /recording-complete endpoint hit");
+    logger.info("📨 /recording-complete endpoint hit");
     try {
         const { CallSid, RecordingUrl, RecordingDuration } = req.body;
         await updateCallLog({
@@ -106,7 +108,7 @@ app.post('/recording-complete', async (req, res) => {
         });
         res.sendStatus(200);
     } catch (error) {
-        console.error("❌ Error in /recording-complete route:", error);
+        logger.error(`❌ Error in /recording-complete route: ${error.message}`);
         res.sendStatus(500);
     }
 });
@@ -115,7 +117,7 @@ app.post('/recording-complete', async (req, res) => {
 
 // Configuration Update Endpoint
 app.post('/update-config', async (req, res) => {
-    console.log("⚙️ /update-config endpoint hit");
+    logger.info("⚙️ /update-config endpoint hit");
     try {
         const updatedConfig = await updateConfig(req.body);
         res.status(200).json({
@@ -128,7 +130,7 @@ app.post('/update-config', async (req, res) => {
         } else if (error.code === 'ENOENT') {
             res.status(404).json({ error: "Configuration file not found" });
         } else {
-            console.error("Server Error in /update-config:", error);
+            logger.error(`Server Error in /update-config: ${error.message}`);
             res.status(500).json({ error: "Internal Server Error" });
         }
     }
@@ -147,7 +149,7 @@ server.on('upgrade', (req, socket, head) => {
 
 // 3. WEBSOCKET LOGIC
 wss.on('connection', (connection, req) => {
-    console.log('Client connected');
+    logger.info('Client connected');
 
     // --- STATE VARIABLES ---
     let streamSid = null;
@@ -166,7 +168,7 @@ wss.on('connection', (connection, req) => {
         if (markQueue.length > 0 && responseStartTimestampTwilio != null) {
             const elapsedTime = latestMediaTimestamp - responseStartTimestampTwilio;
 
-            console.log(`🚧 Interruption detected. Cancelling AI audio after ${elapsedTime}ms`);
+            logger.info(`🚧 Interruption detected. Cancelling AI audio after ${elapsedTime}ms`);
 
             if (lastAssistantItem) {
                 const truncateEvent = {
@@ -208,11 +210,11 @@ wss.on('connection', (connection, req) => {
         if (data.event === 'start') {
             streamSid = data.start.streamSid;
             const callerPhone = data.start.customParameters?.caller;
-            console.log("📞 Caller Phone Identified:", callerPhone);
+            logger.info(`📞 Caller Phone Identified: ${callerPhone}`);
 
             // Ask Dispatcher for Config
             currentPersona = getPersonaByNumber(callerPhone);
-            console.log(`✅ Loaded Persona: ${currentPersona.name}`);
+            logger.info(`✅ Loaded Persona: ${currentPersona.name}`);
 
             // Connect to OpenAI with specific config
             connectToOpenAI(currentPersona);
@@ -277,7 +279,7 @@ wss.on('connection', (connection, req) => {
         };
 
         openAiWs.on('open', () => {
-            console.log(`🔓 Connected to OpenAI for ${persona.name}`);
+            logger.info(`🔓 Connected to OpenAI for ${persona.name}`);
             setTimeout(initializeSession, 100);
         });
 
@@ -290,7 +292,7 @@ wss.on('connection', (connection, req) => {
 
                 // HANDLE OPENAI ERRORS
                 if (response.type === 'error') {
-                    console.error("❌ OpenAI Error Event:", JSON.stringify(response.error, null, 2));
+                    logger.error(`❌ OpenAI Error Event: ${JSON.stringify(response.error, null, 2)}`);
                 }
 
                 // 1. Audio Delta (AI Speaking)
@@ -318,28 +320,28 @@ wss.on('connection', (connection, req) => {
                 // 3. USER TRANSCRIPTION (What YOU said)
                 if (response.type === 'conversation.item.input_audio_transcription.delta') {
                     const userText = response.transcript.trim();
-                    console.log(`👤 USER: ${userText}`);
+                    // console.log(`👤 USER: ${userText}`);
                 }
                 // console.log(response);
 
                 // 4. BOT RESPONSE (What AI said)
                 if (response.type === 'response.output_audio_transcript.done') {
                     const botText = response.transcript.trim();
-                    console.log(`🤖 BOT: ${botText}`);
+                    // console.log(`🤖 BOT: ${botText}`);
                 }
 
             } catch (err) {
-                console.error("Error processing OpenAI message:", err);
+                logger.error(`Error processing OpenAI message: ${err.message}`);
             }
         });
 
-        openAiWs.on('close', () => console.log('OpenAI Closed'));
-        openAiWs.on('error', (err) => console.error("OpenAI Error:", err));
+        openAiWs.on('close', () => logger.info('OpenAI Closed'));
+        openAiWs.on('error', (err) => logger.error(`OpenAI Error: ${err.message}`));
     };
 
     connection.on('close', () => {
         if (openAiWs && openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-        console.log('Client disconnected');
+        logger.info('Client disconnected');
     });
 });
 
