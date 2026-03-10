@@ -1,4 +1,5 @@
 import axios from 'axios';
+import logger from './logger.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -19,7 +20,7 @@ export const downloadFile = async (url, outputPath) => {
         downloadUrl += '.mp3';
     }
 
-    console.log(`⬇️ Downloading: ${downloadUrl} -> ${outputPath}`);
+    logger.info(`⬇️ Downloading: ${downloadUrl} -> ${outputPath}`);
 
     const response = await axios({
         url: downloadUrl,
@@ -35,7 +36,7 @@ export const downloadFile = async (url, outputPath) => {
 
     return new Promise((resolve, reject) => {
         writer.on('finish', () => {
-            console.log(`✅ Download complete: ${outputPath}`);
+            logger.info(`✅ Download complete: ${outputPath}`);
             resolve(outputPath);
         });
         writer.on('error', reject);

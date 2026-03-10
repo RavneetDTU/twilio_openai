@@ -1,11 +1,12 @@
 // src/services/dispatcher.js
 import { billyPersona } from './bot_models/billys.js';
+import logger from './utils/logger.js';
 import { ryanPersona } from './bot_models/ryans.js';
 import { bjornPersona } from './bot_models/bjorns.js';
 import { wineTastingPersona } from './bot_models/wine_tasting.js';
 
 export function getPersonaByNumber(callerNumber) {
-    console.log(`🧠 Dispatcher analyzing number: ${callerNumber}`);
+    logger.info(`🧠 Dispatcher analyzing number: ${callerNumber}`);
 
     // LOGIC: Check number and return model
     // Later we will add: if (callerNumber === '...') return ryanPersona;
@@ -21,7 +22,7 @@ export function getPersonaByNumber(callerNumber) {
     }
 
     else {
-        console.log("⚠️ No specific match found, defaulting to Billy.");
+        logger.warn("⚠️ No specific match found, defaulting to Billy.");
         return billyPersona; //male
     }
 }

@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import logger from './logger.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,7 +14,7 @@ const CONFIG_PATH = path.resolve(__dirname, '../prompts/prompts.json');
  */
 export const updateConfig = async (updates) => {
     try {
-        console.log("📝 Updating config with:", JSON.stringify(updates, null, 2));
+        logger.info(`📝 Updating config with: ${JSON.stringify(updates, null, 2)}`);
 
         // 1. Read File
         const fileData = await fs.readFile(CONFIG_PATH, 'utf-8');
@@ -56,11 +57,11 @@ export const updateConfig = async (updates) => {
         // 6. Write File
         await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8');
 
-        console.log(`✅ Config updated successfully for ${restaurant.name}`);
+        logger.info(`✅ Config updated successfully for ${restaurant.name}`);
         return restaurant;
 
     } catch (error) {
-        console.error("❌ Config Update Error:", error);
+        logger.error(`❌ Config Update Error: ${error.message}`);
         throw error;
     }
 };

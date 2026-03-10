@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import logger from './logger.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -14,14 +15,14 @@ const openai = new OpenAI({
  */
 export const extractBookingData = async (transcriptText) => {
     if (!transcriptText) {
-        console.warn("⚠️ No transcript provided for extraction.");
+        logger.warn("⚠️ No transcript provided for extraction.");
         return null;
     }
 
     // Capture today's real date at the moment of extraction (Africa/Johannesburg timezone)
     const todayDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' }); // → "YYYY-MM-DD"
 
-    console.log(`🧠 Extracting booking data from transcript... (Reference date: ${todayDateStr})`);
+    logger.info(`🧠 Extracting booking data from transcript... (Reference date: ${todayDateStr})`);
 
     try {
         const completion = await openai.chat.completions.create({
@@ -63,12 +64,12 @@ Do NOT include any other fields. Do not use markdown formatting. Return ONLY the
         const jsonString = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
 
         const bookingData = JSON.parse(jsonString);
-        console.log("✅ Booking Data Extracted:", JSON.stringify(bookingData, null, 2));
+        logger.info(`✅ Booking Data Extracted: ${JSON.stringify(bookingData, null, 2)}`);
 
         return bookingData;
 
     } catch (error) {
-        console.error("❌ Failed to extract booking data:", error);
+        logger.error(`❌ Failed to extract booking data: ${error.message}`);
         return null;
     }
 };

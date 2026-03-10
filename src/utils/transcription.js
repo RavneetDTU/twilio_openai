@@ -1,4 +1,5 @@
 import axios from 'axios';
+import logger from './logger.js';
 import FormData from 'form-data';
 import fs from 'fs';
 
@@ -14,7 +15,7 @@ export const transcribeAudio = async (filePath) => {
             throw new Error(`File not found: ${filePath}`);
         }
 
-        console.log(`🎙️ Transcribing file: ${filePath}`);
+        logger.info(`🎙️ Transcribing file: ${filePath}`);
 
         const form = new FormData();
         form.append('file', fs.createReadStream(filePath));
@@ -28,11 +29,11 @@ export const transcribeAudio = async (filePath) => {
         });
 
         const transcript = response.data.text;
-        console.log(`📝 Transcript: "${transcript}"`);
+        logger.info(`📝 Transcript: "${transcript}"`);
         return transcript;
 
     } catch (error) {
-        console.error("❌ Transcription Failed:", error.response?.data || error.message);
+        logger.error(`❌ Transcription Failed: ${error.response?.data || error.message}`);
         return null; // Return null so we don't crash the whole flow
     }
 };
