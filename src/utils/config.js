@@ -65,3 +65,30 @@ export const updateConfig = async (updates) => {
         throw error;
     }
 };
+
+/**
+ * Retrieves specific restaurant details from the configuration file.
+ * @param {string} restaurantId - The ID of the restaurant.
+ * @returns {Promise<Object>} - An object with name, depositAmount, and currency.
+ */
+export const getRestaurantDetails = async (restaurantId) => {
+    try {
+        const fileData = await fs.readFile(CONFIG_PATH, 'utf-8');
+        const data = JSON.parse(fileData);
+
+        const restaurant = data.restaurants.find(r => r.restaurantId === restaurantId);
+
+        if (!restaurant) {
+            throw new Error(`Restaurant not found with ID: ${restaurantId}`);
+        }
+
+        return {
+            name: restaurant.name,
+            depositAmount: restaurant.settings?.depositAmount,
+            currency: restaurant.settings?.currency
+        };
+    } catch (error) {
+        console.log(`❌ Fetch Details Error: ${error.message}`);
+        throw error;
+    }
+};

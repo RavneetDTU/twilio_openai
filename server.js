@@ -10,7 +10,7 @@ import cors from 'cors';
 // 1. IMPORT THE DISPATCHER
 import { getPersonaByNumber } from './src/dispatcher.js';
 import { createCallLog, updateCallLog } from './src/services/callService.js';
-import { updateConfig } from './src/utils/config.js';
+import { updateConfig, getRestaurantDetails } from './src/utils/config.js';
 import smsRoutes from './src/routes/sms.js';
 import paymentRoutes from './src/routes/payment.js';
 import verifyRoutes from './src/routes/verify.js';
@@ -131,6 +131,23 @@ app.post('/update-config', async (req, res) => {
             res.status(404).json({ error: "Configuration file not found" });
         } else {
             logger.error(`Server Error in /update-config: ${error.message}`);
+            res.status(500).json({ error: "Internal Server Error" });
+        }
+    }
+});
+
+// Get Restaurant Details Endpoint
+app.get('/api/restaurant/:id/details', async (req, res) => {
+    console.log(`🔍 /api/restaurant/${req.params.id}/details endpoint hit`);
+    try {
+        const restaurantId = req.params.id;
+        const details = await getRestaurantDetails(restaurantId);
+        res.status(200).json(details);
+    } catch (error) {
+        if (error.message.includes("Restaurant not found")) {
+            res.status(404).json({ error: error.message });
+        } else {
+            console.log(`Server Error in GET details: ${error.message}`);
             res.status(500).json({ error: "Internal Server Error" });
         }
     }
