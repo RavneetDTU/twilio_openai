@@ -52,6 +52,7 @@ router.get('/:paymentId', async (req, res) => {
                 time: callData.booking.time,
                 allergy: callData.booking.allergy,
                 notes: callData.booking.notes,
+                bookingAmount: callData.booking.bookingAmount || 0,
             },
             restaurant: {
                 id: callData.restaurantId,
