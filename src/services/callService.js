@@ -6,6 +6,12 @@ import { extractBookingData } from '../utils/extraction.js';
 import { v4 as uuidv4 } from 'uuid';
 import smsService from './smsService.js';
 import path from 'path';
+import fs from 'fs/promises';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const CONFIG_PATH = path.resolve(__dirname, '../prompts/prompts.json');
 
 const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
 
@@ -62,7 +68,8 @@ export const createCallLog = async ({ callSid, from, to }) => {
                 guests: null,
                 phoneNo: null,
                 allergy: null,
-                notes: null
+                notes: null,
+                bookingAmount: 0
             },
             duration: 0,
             smsSent: false,
@@ -180,19 +187,39 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         const existingData = callLogDoc.data();
         logger.info(`🏪 Booking Restaurant: ${existingData.restaurantName} (ID: ${existingData.restaurantId})`);
 
+        // Load prompts.json to get deposit amount
+        let depositAmount = 0;
+        try {
+            const fileData = await fs.readFile(CONFIG_PATH, 'utf-8');
+            const data = JSON.parse(fileData);
+            const restaurantConfig = data.restaurants.find(r => r.restaurantId === existingData.restaurantId);
+            if (restaurantConfig && restaurantConfig.settings && restaurantConfig.settings.depositAmount) {
+                depositAmount = Number(restaurantConfig.settings.depositAmount) || 0;
+            }
+        } catch (configErr) {
+            logger.error(`❌ Failed to read deposit amount for ${callSid}: ${configErr.message}`);
+        }
+
+        // Calculate total booking amount
+        let bookingAmount = 0;
+        if (bookingData && bookingData.guests) {
+            bookingAmount = Number(bookingData.guests) * depositAmount;
+        }
+
         // Update the document
         const updateData = {
             recordingUrl,
             localFilePath: savedPath,
             transcription: transcriptText,
-            booking: bookingData || {
+            booking: bookingData ? { ...bookingData, bookingAmount } : {
                 name: null,
                 date: null,
                 time: null,
                 guests: null,
                 phoneNo: null,
                 allergy: null,
-                notes: null
+                notes: null,
+                bookingAmount: 0
             },
             duration,
             status: 'completed',
@@ -214,8 +241,11 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             logger.info(`📱 Attempting to send automated SMS for ${callSid}...`);
 
             try {
+                // Ensure bookingAmount is attached to bookingData for SMS
+                const bookingDataForSms = { ...bookingData, bookingAmount };
+                
                 const smsResult = await smsService.sendAutomatedSms(
-                    bookingData,
+                    bookingDataForSms,
                     existingData.paymentId,
                     existingData.restaurantName
                 );
