@@ -64,7 +64,8 @@ class SmsService {
         bookingDate,
         bookingTime,
         paymentId,
-        restaurantName = 'Our Restaurant'
+        restaurantName = 'Our Restaurant',
+        bookingAmount = 0
     }) {
         try {
             if (!this.fromNumber) {
@@ -80,19 +81,14 @@ class SmsService {
 
             logger.info(`📱 Formatted phone: ${customerPhone} -> ${formattedPhone}`);
 
-            const paymentLink = `${this.paymentBaseUrl}/payment/${paymentId}`;
+            let message = `Dear ${customerName},\n\nThank you for your reservation! We've reserved a table for ${numberOfGuests} ${numberOfGuests === 1 ? 'person' : 'people'} at ${restaurantName}${bookingDate ? ` on ${bookingDate}` : ''}${bookingTime ? ` at ${bookingTime}` : ''}.\n\n`;
 
-            const message = `Dear ${customerName},
+            if (bookingAmount > 0) {
+                const paymentLink = `${this.paymentBaseUrl}/payment/${paymentId}`;
+                message += `Please secure your booking by completing payment here:\n${paymentLink}\n\n`;
+            }
 
-Thank you for your reservation! We've reserved a table for ${numberOfGuests} ${numberOfGuests === 1 ? 'person' : 'people'} at ${restaurantName}${bookingDate ? ` on ${bookingDate}` : ''}${bookingTime ? ` at ${bookingTime}` : ''}.
-
-Please secure your booking by completing payment here:
-${paymentLink}
-
-We look forward to serving you!
-
-Best regards,
-${restaurantName}`;
+            message += `We look forward to serving you!\n\nBest regards,\n${restaurantName}`;
 
             logger.info(`📱 Sending SMS to ${formattedPhone}...`);
 
@@ -127,7 +123,7 @@ ${restaurantName}`;
      * @param {string} paymentId - UUID payment identifier
      */
     async sendAutomatedSms(bookingData, paymentId, restaurantName = "Billy's Steakhouse") {
-        const { name, phoneNo, guests, date, time } = bookingData;
+        const { name, phoneNo, guests, date, time, bookingAmount } = bookingData;
 
         if (!name || !phoneNo || !guests) {
             logger.warn('⚠️ Missing required booking data for SMS');
@@ -144,7 +140,8 @@ ${restaurantName}`;
             bookingDate: date || null,
             bookingTime: time || null,
             paymentId,
-            restaurantName
+            restaurantName,
+            bookingAmount: bookingAmount || 0
         });
     }
 }
