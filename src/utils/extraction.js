@@ -42,7 +42,7 @@ Use this date as your reference to resolve relative date expressions:
 Identify the final confirmed booking details and return ONLY a raw JSON object with these exact fields:
 - name (String) — customer name
 - date (String, format YYYY-MM-DD) — the booking date resolved to a real calendar date
-- time (String, format HH:mm in 24-hour) — the booking time, e.g. "19:00"
+- time (String, format hh:mm A in 12-hour) — the booking time, e.g. "07:00 PM"
 - guests (Number) — number of guests
 - phoneNo (String) — customer phone number
 - allergy (String or null) — ONLY the allergy name if the customer mentions one (e.g. "peanuts", "gluten", "shellfish"). If no allergy mentioned, set to null.
