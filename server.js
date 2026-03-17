@@ -13,6 +13,7 @@ import { createCallLog, updateCallLog } from './src/services/callService.js';
 import { updateConfig, getRestaurantDetails } from './src/utils/config.js';
 import smsRoutes from './src/routes/sms.js';
 import paymentRoutes from './src/routes/payment.js';
+import payfastNotifyRoutes from './src/routes/payfastNotify.js';
 import verifyRoutes from './src/routes/verify.js';
 import './src/config/firebase.js'; // Initialize Firebase
 
@@ -49,6 +50,9 @@ app.use('/api/sms', smsRoutes);
 
 // Payment API routes
 app.use('/api/payment', paymentRoutes);
+
+// Payfast ITN (Instant Transaction Notification) routes
+app.use('/api/payfast', payfastNotifyRoutes);
 
 // Phone Verification routes
 app.use('/api/verify', verifyRoutes);
