@@ -57,6 +57,7 @@ export const createCallLog = async ({ callSid, from, to }) => {
             restaurantName,
             paymentId,
             status: 'active',
+            bookingStatus: 'pending',
             startTime: new Date(),
             recordingUrl: null,
             localFilePath: null,
@@ -91,6 +92,26 @@ export const createCallLog = async ({ callSid, from, to }) => {
         logger.error(`❌ Error creating CallLog for ${callSid}: ${error.message}`);
         throw error;
     }
+};
+
+/**
+ * Classifies a booking as 'complete' or 'failed' based on critical fields.
+ * Complete = has name + phone + date (all 3 required)
+ * Failed = missing any of the 3 critical fields
+ * @param {Object|null} bookingData 
+ * @returns {'complete'|'failed'}
+ */
+const classifyBooking = (bookingData) => {
+    if (!bookingData) return 'failed';
+
+    const hasName = bookingData.name && bookingData.name.trim() !== '';
+    const hasPhone = bookingData.phoneNo && bookingData.phoneNo.trim() !== '';
+    const hasDate = bookingData.date && bookingData.date.trim() !== '';
+
+    if (hasName && hasPhone && hasDate) {
+        return 'complete';
+    }
+    return 'failed';
 };
 
 /**
@@ -135,6 +156,60 @@ const sendReservationToApi = async (restaurantId, bookingData, transcriptText) =
 
     } catch (apiError) {
         logger.error(`❌ Reservation API request failed: ${apiError.message}`);
+        return { success: false, error: apiError.message };
+    }
+};
+
+/**
+ * Posts failed/incomplete booking to the failed-bookings API.
+ * Missing fields are sent as "Not Provided".
+ * @param {string} restaurantId 
+ * @param {Object|null} bookingData 
+ * @param {string} transcriptText 
+ */
+const sendFailedBookingToApi = async (restaurantId, bookingData, transcriptText) => {
+    const url = `${RESERVATION_API_BASE}/${restaurantId}/failed-bookings`;
+
+    // Get current date/time in Africa/Johannesburg timezone for call_date and call_time
+    const now = new Date();
+    const callDate = now.toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' }); // "YYYY-MM-DD"
+    const callTime = now.toLocaleTimeString('en-GB', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false }); // "HH:mm"
+
+    const payload = {
+        call_date: callDate,
+        call_time: callTime,
+        guest_name: bookingData?.name || 'Not Provided',
+        phone: bookingData?.phoneNo || 'Not Provided',
+        date: bookingData?.date || 'Not Provided',
+        time: bookingData?.time || 'Not Provided',
+        party_size: bookingData?.guests || 0,
+        allergies: bookingData?.allergy || 'Not Provided',
+        notes: bookingData?.notes || 'Not Provided',
+        transcription: transcriptText || 'Not Provided'
+    };
+
+    logger.info(`📡 Sending failed booking to API: ${url}`);
+    logger.info(`📦 Failed Booking Payload: ${JSON.stringify(payload, null, 2)}`);
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            logger.error(`❌ Failed Booking API error (${response.status}): ${errorText}`);
+            return { success: false, status: response.status, error: errorText };
+        }
+
+        const result = await response.json();
+        logger.info(`✅ Failed Booking API success: ${JSON.stringify(result, null, 2)}`);
+        return { success: true, data: result };
+
+    } catch (apiError) {
+        logger.error(`❌ Failed Booking API request failed: ${apiError.message}`);
         return { success: false, error: apiError.message };
     }
 };
@@ -206,6 +281,10 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             bookingAmount = Number(bookingData.guests) * depositAmount;
         }
 
+        // Classify the booking: 'complete' (has name+phone+date) or 'failed'
+        const bookingStatus = classifyBooking(bookingData);
+        logger.info(`📊 Booking classified as: ${bookingStatus} for ${callSid}`);
+
         // Update the document
         const updateData = {
             recordingUrl,
@@ -223,27 +302,24 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             },
             duration,
             status: 'completed',
+            bookingStatus,
             updatedAt: new Date()
         };
 
         await callLogRef.update(updateData);
         logger.info(`✅ CallLog Updated: ${callSid} -> URL: ${recordingUrl}`);
 
-        // Send to external Reservation API if booking data is present
-        if (bookingData && bookingData.name) {
+        // Route to the correct API based on booking classification
+        if (bookingStatus === 'complete') {
+            // COMPLETE: Send to existing reservation API
+            logger.info(`✅ Complete booking detected for ${callSid} — sending to Reservation API`);
             await sendReservationToApi(existingData.restaurantId, bookingData, transcriptText);
-        } else {
-            logger.info(`ℹ️ Skipping Reservation API - no booking data for ${callSid}`);
-        }
 
-        // Send automated SMS if booking data is complete
-        if (bookingData && bookingData.name && bookingData.phoneNo && bookingData.guests) {
+            // Send automated SMS for complete bookings
             logger.info(`📱 Attempting to send automated SMS for ${callSid}...`);
-
             try {
-                // Ensure bookingAmount is attached to bookingData for SMS
                 const bookingDataForSms = { ...bookingData, bookingAmount };
-                
+
                 const smsResult = await smsService.sendAutomatedSms(
                     bookingDataForSms,
                     existingData.paymentId,
@@ -270,7 +346,9 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
                 logger.error(`❌ SMS error for ${callSid}: ${smsError.message}`);
             }
         } else {
-            logger.info(`ℹ️ Skipping SMS - incomplete booking data for ${callSid}`);
+            // FAILED: Send to failed-bookings API
+            logger.info(`⚠️ Failed/incomplete booking detected for ${callSid} — sending to Failed Booking API`);
+            await sendFailedBookingToApi(existingData.restaurantId, bookingData, transcriptText);
         }
 
         const updatedDoc = await callLogRef.get();
@@ -281,3 +359,4 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         throw error;
     }
 };
+
