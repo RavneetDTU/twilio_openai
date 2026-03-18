@@ -39,16 +39,18 @@ Use this date as your reference to resolve relative date expressions:
 - "next Friday" → find the next upcoming Friday from today
 - "this Saturday" → the coming Saturday
 
-Identify the final confirmed booking details and return ONLY a raw JSON object with these exact fields:
-- name (String) — customer name
-- date (String, format YYYY-MM-DD) — the booking date resolved to a real calendar date
-- time (String, format hh:mm A in 12-hour) — the booking time, e.g. "07:00 PM"
-- guests (Number) — number of guests
-- phoneNo (String) — customer phone number
+IMPORTANT: The call may have been cut short or incomplete. Extract whatever details are available from the transcript, even if the conversation ended abruptly. For any details NOT mentioned or discussed in the transcript, set the value to null.
+
+Return ONLY a raw JSON object with these exact fields:
+- name (String or null) — customer name, if mentioned at any point in the call
+- date (String or null, format YYYY-MM-DD) — the booking date resolved to a real calendar date
+- time (String or null, format hh:mm A in 12-hour) — the booking time, e.g. "07:00 PM"
+- guests (Number or null) — number of guests
+- phoneNo (String or null) — customer phone number
 - allergy (String or null) — ONLY the allergy name if the customer mentions one (e.g. "peanuts", "gluten", "shellfish"). If no allergy mentioned, set to null.
 - notes (String or null) — a short note about the allergy for the kitchen, e.g. "Customer has peanut allergy — please ensure no cross-contamination". If no allergy mentioned, set to null.
 
-Do NOT include any other fields. Do not use markdown formatting. Return ONLY the raw JSON object.`
+Do NOT include any other fields. Do not use markdown formatting. Return ONLY the raw JSON object. Always return valid JSON even if most fields are null.`
                 },
                 {
                     role: "user",
