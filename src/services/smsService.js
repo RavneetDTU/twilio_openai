@@ -23,6 +23,13 @@ class SmsService {
     formatPhoneNumber(phoneNumber, defaultCountryCode = '27') {
         if (!phoneNumber) return null;
 
+        // If the number explicitly starts with a + sign, it already has a country code.
+        // We just need to clean out any spaces/dashes and keep the +.
+        if (phoneNumber.trim().startsWith('+')) {
+            const exactCleaned = phoneNumber.replace(/\D/g, '');
+            return `+${exactCleaned}`;
+        }
+
         // Remove all non-digit characters
         let cleaned = phoneNumber.replace(/\D/g, '');
 
@@ -44,6 +51,35 @@ class SmsService {
 
         // Add country code
         return `+${defaultCountryCode}${cleaned}`;
+    }
+
+    /**
+     * Converts a time string (e.g., "19:00", "07:00") to 12-hour AM/PM format.
+     */
+    formatTo12Hour(timeStr) {
+        if (!timeStr) return null;
+        const cleanedStr = timeStr.trim().toLowerCase();
+        
+        // If it already contains AM/PM, return as is (capitalized properly)
+        if (cleanedStr.includes('am') || cleanedStr.includes('pm')) {
+            return timeStr.toUpperCase();
+        }
+
+        const parts = timeStr.split(':');
+        if (parts.length >= 2) {
+            let hours = parseInt(parts[0], 10);
+            let minutes = parseInt(parts[1], 10);
+            
+            if (!isNaN(hours) && !isNaN(minutes)) {
+                const ampm = hours >= 12 ? 'PM' : 'AM';
+                hours = hours % 12;
+                hours = hours ? hours : 12; // the hour '0' should be '12'
+                const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+                return `${hours}:${minutesStr} ${ampm}`;
+            }
+        }
+        
+        return timeStr; // Fallback if parsing fails
     }
 
     /**
@@ -81,7 +117,9 @@ class SmsService {
 
             logger.info(`📱 Formatted phone: ${customerPhone} -> ${formattedPhone}`);
 
-            let message = `Dear ${customerName},\n\nThank you for your reservation! We've reserved a table for ${numberOfGuests} ${numberOfGuests === 1 ? 'person' : 'people'} at ${restaurantName}${bookingDate ? ` on ${bookingDate}` : ''}${bookingTime ? ` at ${bookingTime}` : ''}.\n\n`;
+            const formattedTime = this.formatTo12Hour(bookingTime);
+
+            let message = `Dear ${customerName},\n\nThank you for your reservation! We've reserved a table for ${numberOfGuests} ${numberOfGuests === 1 ? 'person' : 'people'} at ${restaurantName}${bookingDate ? ` on ${bookingDate}` : ''}${formattedTime ? ` at ${formattedTime}` : ''}.\n\n`;
 
             if (bookingAmount > 0) {
                 const paymentLink = `${this.paymentBaseUrl}/payment/${paymentId}`;

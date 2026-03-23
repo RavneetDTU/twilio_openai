@@ -12,6 +12,7 @@ import { getPersonaByNumber } from './src/dispatcher.js';
 import { createCallLog, updateCallLog } from './src/services/callService.js';
 import { updateConfig, getRestaurantDetails } from './src/utils/config.js';
 import smsRoutes from './src/routes/sms.js';
+import bookingRoutes from './src/routes/booking.js';
 import paymentRoutes from './src/routes/payment.js';
 import payfastNotifyRoutes from './src/routes/payfastNotify.js';
 import verifyRoutes from './src/routes/verify.js';
@@ -47,6 +48,9 @@ app.get('/', (req, res) => res.json({ message: 'Server is running!' }));
 
 // SMS API routes
 app.use('/api/sms', smsRoutes);
+
+// General Booking API routes
+app.use('/api/booking', bookingRoutes);
 
 // Payment API routes
 app.use('/api/payment', paymentRoutes);

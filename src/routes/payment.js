@@ -13,11 +13,53 @@ router.get('/:paymentId', async (req, res) => {
 
         console.log(`🔍 Fetching booking details for payment ID: ${paymentId}`);
 
+        let callData = null;
+
         // Query Firestore for call log with this payment ID
         const callLogsRef = db.collection('callLogs');
         const snapshot = await callLogsRef.where('paymentId', '==', paymentId).limit(1).get();
 
-        if (snapshot.empty) {
+        if (!snapshot.empty) {
+            // Get the first (and only) document
+            const doc = snapshot.docs[0];
+            callData = doc.data();
+        } else {
+            // Check manualBookings if not found in callLogs
+            const manualRef = db.collection('manualBookings');
+            const manualSnapshot = await manualRef.where('paymentId', '==', paymentId).limit(1).get();
+            
+            if (!manualSnapshot.empty) {
+                const manualDoc = manualSnapshot.docs[0];
+                const manual = manualDoc.data();
+                
+                // Map to the format expected by the frontend
+                callData = {
+                    paymentId: manual.paymentId,
+                    callSid: null,
+                    restaurantId: manual.restaurantId,
+                    botPhone: null,
+                    booking: {
+                        name: manual.name,
+                        phoneNo: manual.phoneNo,
+                        guests: manual.guests,
+                        date: manual.date,
+                        time: manual.time,
+                        allergy: manual.allergy,
+                        notes: manual.notes,
+                        bookingAmount: manual.bookingAmount || 0
+                    },
+                    startTime: manual.createdAt,
+                    duration: 0,
+                    status: 'completed',
+                    smsSent: manual.smsStatus === 'Success',
+                    smsDetails: { sentAt: manual.createdAt },
+                    createdAt: manual.createdAt,
+                    updatedAt: manual.createdAt
+                };
+            }
+        }
+
+        if (!callData) {
             console.warn(`⚠️ No booking found for payment ID: ${paymentId}`);
             return res.status(404).json({
                 success: false,
@@ -25,10 +67,6 @@ router.get('/:paymentId', async (req, res) => {
                 message: 'No booking exists with this payment ID'
             });
         }
-
-        // Get the first (and only) document
-        const doc = snapshot.docs[0];
-        const callData = doc.data();
 
         // Check if booking data exists
         if (!callData.booking || !callData.booking.name) {
