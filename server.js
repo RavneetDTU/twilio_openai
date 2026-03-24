@@ -124,7 +124,7 @@ app.post('/recording-complete', async (req, res) => {
 
 
 // Configuration Update Endpoint
-app.post('/update-config', async (req, res) => {
+app.post('/api/update-config', async (req, res) => {
     logger.info("⚙️ /update-config endpoint hit");
     try {
         const updatedConfig = await updateConfig(req.body);

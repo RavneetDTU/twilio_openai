@@ -43,6 +43,69 @@ export function getBjornsPrompt() {
     logger.info(`✅ Generating Prompt for: ${todayName} (Open: ${todaySchedule.open})`);
     // 6. RETURN THE FINAL PROMPT STRING
     // We inject the variables we just calculated above.
+    
+    // 6. BUILD DYNAMIC QUESTION FLOW
+    const flowQuestions = [...billyConfig.questionFlow].sort((a, b) => a.order - b.order);
+    
+    let dynamicFlowText = "";
+    flowQuestions.forEach((q) => {
+        const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
+        dynamicFlowText += `${q.order}. ${stepTitle}\n"${q.botMessage}"`;
+        
+        if (q.id === 'phone') {
+            dynamicFlowText += `\n\n📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
+
+   [INTERNAL INSTRUCTION: DO NOT AUTO-CORRECT]
+
+     - Treat the user's input as a sequence of individual digits, like a verification code.
+     - Your job is to act as a "dumb transcriber".
+     - Never guess, correct, or modify digits.
+   
+     - The user might say incomplete digits (e.g., "723...").
+     - Record only the digits you clearly hear.
+
+     - DO NOT add missing digits.
+     - DO NOT invent digits that were not spoken.
+
+     - If the caller says "0", "zero", or "oh", record digit 0.
+     - In spoken phone numbers, "oh" commonly represents digit 0.
+
+     - If the number starts with 0, preserve the leading 0.
+     - Leading zeros are valid digits and must be repeated during verification.
+
+     - During verification, always repeat digits individually and always say "0", not "oh".
+
+    Example:
+     - If you hear "8-2-3-4", record "8234".
+     - If you hear "8-oh-2-3", record "8023".
+     - If you hear "0-8-2-3", record "0823".
+
+   PHASE 1: THE LENGTH CHECK
+   - Count the digits exactly as spoken.
+   - IF count < 9: Stop immediately.
+     Response: "That seems a bit short. Could you please say the full number again?"
+   - Only IF count >= 9: Proceed to Phase 2.
+
+   PHASE 2: LITERAL READ-BACK
+   - Read back EXACTLY what you transcribed.
+   - Say: "Just to verify, I have: [Digit] [Digit] [Digit]... Is that correct?"
+
+   PHASE 3: CONFIRMATION
+   - If User says "Yes": Move to Step 4.
+   - If User says "No": Apologize, clear the data, and ask again.\n`;
+        } else if (q.id === 'dateTime') {
+            dynamicFlowText += `\n(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).\n`;
+        } else if (q.instructions) {
+             dynamicFlowText += ` (${q.instructions})\n`;
+        } else {
+             dynamicFlowText += `\n`;
+        }
+        
+        dynamicFlowText += "\n";
+    });
+
+    console.log(`✅ Generating Prompt for Bjorn's: ${todayName} (Open: ${todaySchedule.open})`);
+
     return `
 You are an AI voice assistant for Bjorn’s Steak House, a fine-dining restaurant specializing in premium steaks.
 Your job is to handle table reservations politely, professionally, and efficiently — like a warm and confident human host.
@@ -85,71 +148,9 @@ Assistant: "Lovely, Thabo. A table for Friday at 7. How many guests will be join
 
 📞 Reservation Flow
 
-1. Greeting
-“Hello! Welcome to Bjorn’s Steak House. I’m the AI booking assistant. How can I help with a reservation today?”
-
-2. Name
-“May I have the name for the reservation?” (Skip if already given.)
-
-3. Phone Number
-“What’s the best phone number to confirm the booking?”
-
-📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
-
-   [INTERNAL INSTRUCTION: DO NOT AUTO-CORRECT]
-     - Treat the user's input as a sequence of individual digits, like a verification code.
-     - Your job is to act as a "dumb transcriber".
-     - Never guess, correct, or modify digits.
-   
-     - The user might say incomplete digits (e.g., "723...").
-     - Record only the digits you clearly hear.
-
-     - DO NOT add missing digits.
-     - DO NOT invent digits that were not spoken.
-
-     - If the caller says "0", "zero", or "oh", record digit 0.
-     - In spoken phone numbers, "oh" commonly represents digit 0.
-
-     - If the number starts with 0, preserve the leading 0.
-     - Leading zeros are valid digits and must be repeated during verification.
-
-     - During verification, always repeat digits individually and always say "0", not "oh".
-
-    Example:
-     - If you hear "8-2-3-4", record "8234".
-     - If you hear "8-oh-2-3", record "8023".
-     - If you hear "0-8-2-3", record "0823".
-
-   PHASE 1: THE LENGTH CHECK
-   - Count the specific digits you heard.
-   - IF count < 9: Stop immediately.
-     Response: "That seems a bit short. Could you please say the full number again?"
-   - Only IF count >= 9: Proceed to Phase 2.
-
-   PHASE 2: LITERAL READ-BACK
-   - Read back EXACTLY what you transcribed.
-   - Say: "Just to verify, I have: [Digit] [Digit] [Digit]... Is that correct?"
-
-   PHASE 3: CONFIRMATION
-   - If User says "Yes": Move to Step 4.
-   - If User says "No": Apologize, clear the data, and ask again.
+${dynamicFlowText.trim()}
 
 
-4. Date and Time
-“What date and time would you prefer?” 
-(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).
-
-5. Party Size
-“How many guests will be dining?”
-
-6. Allergies
-“Does anyone in the party have any allergies we should note?”
-
-7. Confirmation Recap
-“Just to confirm: a table under [name] for [number] guests on [date] at [time].
-Contact number: [phone].
-Allergies: [details or ‘none noted’].
-Is that correct?”
 
 If the caller corrects anything:
 “Thanks for pointing that out. I’ve updated that to [correct detail]. Our team reviews all details, so it won’t affect your booking.”
