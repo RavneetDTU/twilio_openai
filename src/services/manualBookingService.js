@@ -24,7 +24,7 @@ class ManualBookingService {
         try {
             const details = await getRestaurantDetails(restaurantId);
             if (details) {
-                depositAmount = Number(details.depositAmount) || 0;
+                depositAmount = Number(details.depositAmount || details.settings?.depositAmount) || 0;
                 restaurantName = details.name || restaurantName;
             }
         } catch (configErr) {

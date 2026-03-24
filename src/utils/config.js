@@ -51,6 +51,11 @@ export const updateConfig = async (updates) => {
             };
         }
 
+        // Replace questionFlow if provided
+        if (updates.questionFlow) {
+            restaurant.questionFlow = updates.questionFlow;
+        }
+
         // 5. Update the restaurant in the array
         data.restaurants[restaurantIndex] = restaurant;
 
@@ -82,11 +87,7 @@ export const getRestaurantDetails = async (restaurantId) => {
             throw new Error(`Restaurant not found with ID: ${restaurantId}`);
         }
 
-        return {
-            name: restaurant.name,
-            depositAmount: restaurant.settings?.depositAmount,
-            currency: restaurant.settings?.currency
-        };
+        return restaurant;
     } catch (error) {
         console.log(`❌ Fetch Details Error: ${error.message}`);
         throw error;
