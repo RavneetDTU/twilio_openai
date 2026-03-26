@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../config/firebase.js';
 import smsService from './smsService.js';
 import { getRestaurantDetails } from '../utils/config.js';
+import logger from '../utils/logger.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
 
