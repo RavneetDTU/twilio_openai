@@ -78,19 +78,54 @@ router.post('/notify', async (req, res) => {
             return;
         }
 
-        // Step 7: Look up the booking from callLogs using paymentId
+        // Step 7: Look up the booking from callLogs or manualBookings using paymentId
+        let callLogDoc = null;
+        let callData = null;
+        let isManualBooking = false;
+
         const callLogsSnapshot = await db.collection('callLogs')
             .where('paymentId', '==', paymentId)
             .limit(1)
             .get();
 
-        if (callLogsSnapshot.empty) {
-            logger.error(`❌ Payfast ITN: No booking found for paymentId: ${paymentId}`);
-            return;
+        if (!callLogsSnapshot.empty) {
+            callLogDoc = callLogsSnapshot.docs[0];
+            callData = callLogDoc.data();
+        } else {
+            // Check manualBookings if not found in callLogs
+            const manualSnapshot = await db.collection('manualBookings')
+                .where('paymentId', '==', paymentId)
+                .limit(1)
+                .get();
+                
+            if (!manualSnapshot.empty) {
+                callLogDoc = manualSnapshot.docs[0];
+                const manualData = callLogDoc.data();
+                isManualBooking = true;
+                
+                // Normalize manual booking data to match callData structure for the rest of the flow
+                callData = {
+                    callSid: `manual_${paymentId}`, // Dummy SID to prevent null errors
+                    restaurantId: manualData.restaurantId,
+                    restaurantName: manualData.restaurantName || "Manual Booking",
+                    booking: {
+                        name: manualData.name,
+                        phoneNo: manualData.phoneNo,
+                        guests: manualData.guests,
+                        date: manualData.date,
+                        time: manualData.time,
+                        allergy: manualData.allergy,
+                        notes: manualData.notes,
+                        bookingAmount: manualData.bookingAmount || 0
+                    }
+                };
+            }
         }
 
-        const callLogDoc = callLogsSnapshot.docs[0];
-        const callData = callLogDoc.data();
+        if (!callData) {
+            logger.error(`❌ Payfast ITN: No booking found in callLogs or manualBookings for paymentId: ${paymentId}`);
+            return;
+        }
 
         // Step 8: Validate amount matches the booking amount
         const expectedAmount = callData.booking?.bookingAmount || 0;
@@ -136,6 +171,50 @@ router.post('/notify', async (req, res) => {
             updatedAt: new Date()
         });
         logger.info(`✅ Payfast ITN: CallLog updated for ${callData.callSid} — paymentStatus: ${paymentStatus}`);
+
+        // Step 12: Sync payment success with External Reservation API
+        if (paymentStatus === 'success') {
+            try {
+                const now = new Date();
+                const paymentDate = now.toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' }); // "YYYY-MM-DD"
+                const paymentTime = now.toLocaleTimeString('en-GB', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false }); // "HH:mm"
+
+                const externalApiUrl = `https://mybookiapis.jarviscalling.ai/restaurants/${callData.restaurantId}/reservations/by-reference/${paymentId}`;
+        
+                const payload = {
+                    date: callData.booking?.date || "NA",
+                    time: callData.booking?.time || "NA",
+                    party_size: Number(callData.booking?.guests) || 0,
+                    allergies: callData.booking?.allergy || "NA",
+                    notes: callData.booking?.notes || "NA",
+                    status: "Confirmed",
+                    payment_id: paymentId,
+                    payment_amount: parseFloat(payfastData.amount_gross) || 0,
+                    payment_currency: "Rand",
+                    payment_status: "Payment Success",
+                    payment_method: payfastData.payment_method || "Payfast",
+                    payment_date: paymentDate,
+                    payment_time: paymentTime,
+                    payment_notes: "Payment received via Payfast ITN"
+                };
+
+                logger.info(`📡 Sending payment status patch to: ${externalApiUrl}`);
+                const response = await fetch(externalApiUrl, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    logger.error(`❌ External API sync failed for ${paymentId}. Status: ${response.status}. Error: ${errText}`);
+                } else {
+                    logger.info(`✅ External API sync successful for ${paymentId}. Dashboard updated!`);
+                }
+            } catch (apiError) {
+                logger.error(`❌ Error syncing to External API for ${paymentId}: ${apiError.message}`);
+            }
+        }
 
     } catch (error) {
         logger.error(`❌ Payfast ITN: Processing error: ${error.message}`);
