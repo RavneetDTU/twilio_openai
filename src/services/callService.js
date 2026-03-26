@@ -120,10 +120,11 @@ const classifyBooking = (bookingData) => {
  * @param {Object} bookingData 
  * @param {string} transcriptText 
  */
-const sendReservationToApi = async (restaurantId, bookingData, transcriptText) => {
+const sendReservationToApi = async (restaurantId, paymentId, bookingData, transcriptText) => {
     const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
 
     const payload = {
+        reference_id: paymentId || null,
         name: bookingData.name || null,
         phone: bookingData.phoneNo || null,
         date: bookingData.date || null,
@@ -313,7 +314,7 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         if (bookingStatus === 'complete') {
             // COMPLETE: Send to existing reservation API
             logger.info(`✅ Complete booking detected for ${callSid} — sending to Reservation API`);
-            await sendReservationToApi(existingData.restaurantId, bookingData, transcriptText);
+            await sendReservationToApi(existingData.restaurantId, existingData.paymentId, bookingData, transcriptText);
 
             // Send automated SMS for complete bookings
             logger.info(`📱 Attempting to send automated SMS for ${callSid}...`);

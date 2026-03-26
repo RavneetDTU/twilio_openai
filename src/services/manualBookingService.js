@@ -3,6 +3,8 @@ import { db } from '../config/firebase.js';
 import smsService from './smsService.js';
 import { getRestaurantDetails } from '../utils/config.js';
 
+const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
+
 class ManualBookingService {
     /**
      * Creates a manual booking, saves it to Firestore, and sends an SMS payment link.
@@ -56,11 +58,43 @@ class ManualBookingService {
 
         // 4. Save to DB first
         const docRef = db.collection('manualBookings').doc(paymentId);
-        console.log("Manual booking created successfully", manualBookingData);
+        logger.info("Manual booking created successfully", manualBookingData);
         await docRef.set(manualBookingData);
 
+        // 4.5. Send to External Reservation API
+        try {
+            const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
+            const payload = {
+                reference_id: paymentId || null,
+                name: name || null,
+                phone: phoneNo || null,
+                date: date || null,
+                time: time || null,
+                party_size: Number(guests) || 0,
+                allergies: allergy || 'N/A',
+                notes: notes || 'N/A',
+                transcription: 'Manually Created' // Manual booking has no transcription
+            };
+
+            logger.info(`📡 Sending manual reservation to API: ${url}`);
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                logger.error(`❌ Reservation API error (${response.status}): ${errorText}`);
+            } else {
+                logger.info(`✅ Manual Reservation API success`);
+            }
+        } catch (apiError) {
+            logger.error(`❌ Manual Reservation API request failed: ${apiError.message}`);
+        }
+
         // 5. Send SMS using existing service
-        console.log(`📱 Sending manual booking SMS for payment ID: ${paymentId}...`);
+        logger.info(`📱 Sending manual booking SMS for payment ID: ${paymentId}...`);
         
         const bookingDataForSms = { ...manualBookingData };
         const smsResult = await smsService.sendAutomatedSms(
