@@ -44,7 +44,7 @@ export function getWineTastingPrompt() {
     // We inject the variables we just calculated above.
 
     // 6. BUILD DYNAMIC QUESTION FLOW
-    const flowQuestions = [...billyConfig.questionFlow].sort((a, b) => a.order - b.order);
+    const flowQuestions = [...wineTastingConfig.questionFlow].sort((a, b) => a.order - b.order);
     
     let dynamicFlowText = "";
     flowQuestions.forEach((q) => {
