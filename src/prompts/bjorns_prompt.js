@@ -45,7 +45,7 @@ export function getBjornsPrompt() {
     // We inject the variables we just calculated above.
     
     // 6. BUILD DYNAMIC QUESTION FLOW
-    const flowQuestions = [...billyConfig.questionFlow].sort((a, b) => a.order - b.order);
+    const flowQuestions = [...bjornConfig.questionFlow].sort((a, b) => a.order - b.order);
     
     let dynamicFlowText = "";
     flowQuestions.forEach((q) => {

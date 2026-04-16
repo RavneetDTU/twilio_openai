@@ -53,6 +53,7 @@ class ManualBookingService {
             notes: notes || "NA",
             depositAmount,
             bookingAmount,
+            paymentStatus: 'Pending',
             smsStatus: 'Pending',
             createdAt: new Date()
         };
