@@ -40,49 +40,56 @@
       },
       "questionFlow": [
         {
-          "id": "greet",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560001",
+          "title": "Greeting",
           "order": 1,
           "botMessage": "Hello! Welcome to Billy's Steak House. I'm the AI booking assistant. How can I help with a reservation today?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "phone",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560002",
+          "title": "Phone Capture",
           "order": 2,
           "botMessage": "What's the best phone number to confirm the booking?",
           "isRequired": true,
           "instructions": "Use STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode). Minimum 9 digits. Literal read-back required."
         },
         {
-          "id": "name",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560003",
+          "title": "Name Capture",
           "order": 3,
           "botMessage": "May I have the name for the reservation?",
           "isRequired": true,
           "instructions": "Skip if already given."
         },
         {
-          "id": "dateTime",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560004",
+          "title": "Date & Time",
           "order": 4,
           "botMessage": "What date and time would you prefer?",
           "isRequired": true,
           "instructions": "Check against operating hours."
         },
         {
-          "id": "partySize",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560005",
+          "title": "Party Size",
           "order": 5,
           "botMessage": "How many guests will be dining?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "allergies",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560006",
+          "title": "Allergies",
           "order": 6,
           "botMessage": "Does anyone in the party have any allergies we should note?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "confirm",
+          "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560007",
+          "title": "Confirmation",
           "order": 7,
           "botMessage": "Just to confirm: a table under [name] for [number] guests on [date] at [time]. Contact: [phone]. Allergies: [details or 'none noted']. Is that correct?",
           "isRequired": true,
@@ -130,49 +137,56 @@
       },
       "questionFlow": [
         {
-          "id": "greet",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670001",
+          "title": "Greeting",
           "order": 1,
           "botMessage": "Hello! Welcome to Ryan's Steakhouse. I'm the AI booking assistant. How can I help with a reservation today?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "name",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670002",
+          "title": "Name Capture",
           "order": 2,
           "botMessage": "May I have the name for the reservation?",
           "isRequired": true,
           "instructions": "Skip if already given."
         },
         {
-          "id": "phone",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670003",
+          "title": "Phone Capture",
           "order": 3,
           "botMessage": "What's the best phone number to confirm the booking?",
           "isRequired": true,
           "instructions": "Use STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode). Minimum 9 digits. Literal read-back required."
         },
         {
-          "id": "dateTime",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670004",
+          "title": "Date & Time",
           "order": 4,
           "botMessage": "What date and time would you prefer?",
           "isRequired": true,
           "instructions": "Check against operating hours."
         },
         {
-          "id": "partySize",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670005",
+          "title": "Party Size",
           "order": 5,
           "botMessage": "How many guests will be dining?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "allergies",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670006",
+          "title": "Allergies",
           "order": 6,
           "botMessage": "Does anyone in the party have any allergies we should note?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "confirm",
+          "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670007",
+          "title": "Confirmation",
           "order": 7,
           "botMessage": "Just to confirm: a table under [name] for [number] guests on [date] at [time]. Contact: [phone]. Allergies: [details or 'none noted']. Is that correct?",
           "isRequired": true,
@@ -220,49 +234,56 @@
       },
       "questionFlow": [
         {
-          "id": "greet",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780001",
+          "title": "Greeting",
           "order": 1,
           "botMessage": "Hello! Welcome to Bjorn's Steakhouse. I'm the AI booking assistant. How can I help with a reservation today?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "name",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780002",
+          "title": "Name Capture",
           "order": 2,
           "botMessage": "May I have the name for the reservation?",
           "isRequired": true,
           "instructions": "Skip if already given."
         },
         {
-          "id": "phone",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780003",
+          "title": "Phone Capture",
           "order": 3,
           "botMessage": "What's the best phone number to confirm the booking?",
           "isRequired": true,
           "instructions": "Use STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode). Minimum 9 digits. Literal read-back required."
         },
         {
-          "id": "dateTime",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780004",
+          "title": "Date & Time",
           "order": 4,
           "botMessage": "What date and time would you prefer?",
           "isRequired": true,
           "instructions": "Check against operating hours."
         },
         {
-          "id": "partySize",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780005",
+          "title": "Party Size",
           "order": 5,
           "botMessage": "How many guests will be dining?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "allergies",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780006",
+          "title": "Allergies",
           "order": 6,
           "botMessage": "Does anyone in the party have any allergies we should note?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "confirm",
+          "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780007",
+          "title": "Confirmation",
           "order": 7,
           "botMessage": "Just to confirm: a table under [name] for [number] guests on [date] at [time]. Contact: [phone]. Allergies: [details or 'none noted']. Is that correct?",
           "isRequired": true,
@@ -310,49 +331,56 @@
       },
       "questionFlow": [
         {
-          "id": "greet",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890001",
+          "title": "Greeting",
           "order": 1,
           "botMessage": "Hello! Welcome to Wine Tasting Terrance. I'm the AI booking assistant. How can I help with a reservation today?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "name",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890002",
+          "title": "Name Capture",
           "order": 2,
           "botMessage": "May I have the name for the reservation?",
           "isRequired": true,
           "instructions": "Skip if already given."
         },
         {
-          "id": "phone",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890003",
+          "title": "Phone Capture",
           "order": 3,
           "botMessage": "What's the best phone number to confirm the booking?",
           "isRequired": true,
           "instructions": "Use STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode). Minimum 9 digits. Literal read-back required."
         },
         {
-          "id": "dateTime",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890004",
+          "title": "Date & Time",
           "order": 4,
           "botMessage": "What date and time would you prefer?",
           "isRequired": true,
           "instructions": "Check against operating hours."
         },
         {
-          "id": "partySize",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890005",
+          "title": "Party Size",
           "order": 5,
           "botMessage": "How many guests will be dining?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "allergies",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890006",
+          "title": "Allergies",
           "order": 6,
           "botMessage": "Does anyone in the party have any allergies we should note?",
           "isRequired": true,
           "instructions": null
         },
         {
-          "id": "confirm",
+          "id": "q_d4e5f6a7-b8c9-4890-defa-123456890007",
+          "title": "Confirmation",
           "order": 7,
           "botMessage": "Just to confirm: a table under [name] for [number] guests on [date] at [time]. Contact: [phone]. Allergies: [details or 'none noted']. Is that correct?",
           "isRequired": true,
