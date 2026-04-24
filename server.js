@@ -256,6 +256,10 @@ wss.on('connection', (connection, req) => {
     let markQueue = [];
     let responseStartTimestampTwilio = null;
 
+    // Call lifecycle state
+    let sessionCallSid = null;      // Twilio CallSid — captured on 'start' event
+    let bookingCompleted = false;   // Guard: prevents double-hangup if phrase appears twice
+
     // Default Persona (will be updated on 'start')
     let currentPersona = null;
     let openAiWs = null;
@@ -307,8 +311,10 @@ wss.on('connection', (connection, req) => {
         // A. Handle 'start' event (Identify Caller & Connect AI)
         if (data.event === 'start') {
             streamSid = data.start.streamSid;
+            sessionCallSid = data.start.callSid;  // Capture Twilio CallSid for later hangup
             const callerPhone = data.start.customParameters?.caller;
             logger.info(`📞 Caller Phone Identified: ${callerPhone}`);
+            logger.info(`🆔 Session CallSid captured: ${sessionCallSid}`);
 
             // Ask Dispatcher for Config
             currentPersona = getPersonaByNumber(callerPhone);
@@ -422,10 +428,29 @@ wss.on('connection', (connection, req) => {
                 }
                 // console.log(response);
 
-                // 4. BOT RESPONSE (What AI said)
+                // 4. BOT RESPONSE (What AI said) + Auto-Hangup on Closing Phrase
                 if (response.type === 'response.output_audio_transcript.done') {
                     const botText = response.transcript.trim();
-                    // console.log(`🤖 BOT: ${botText}`);
+                    logger.info(`🤖 BOT: ${botText}`);
+
+                    // --- AUTO-HANGUP: End call after bot delivers closing message ---
+                    // Matches the final line: "...we look forward to welcoming you."
+                    // bookingCompleted flag ensures we only trigger this ONCE per call.
+                    const isClosingMessage = botText.toLowerCase().includes('look forward to welcoming you');
+
+                    if (isClosingMessage && !bookingCompleted && sessionCallSid) {
+                        bookingCompleted = true;
+                        logger.info('✅ Booking closing message detected. Scheduling call termination in 10s...');
+
+                        setTimeout(async () => {
+                            try {
+                                await client.calls(sessionCallSid).update({ status: 'completed' });
+                                logger.info(`📵 Call ${sessionCallSid} ended successfully via Twilio REST API.`);
+                            } catch (hangupErr) {
+                                logger.error(`❌ Failed to end call ${sessionCallSid}: ${hangupErr.message}`);
+                            }
+                        }, 10000); // 3-second delay — lets the audio finish before hanging up
+                    }
                 }
 
             } catch (err) {
