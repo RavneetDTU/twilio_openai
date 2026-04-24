@@ -51,7 +51,7 @@ export function getRyansPrompt() {
         const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
         dynamicFlowText += `${q.order}. ${stepTitle}\n"${q.botMessage}"`;
         
-        if (q.id === 'phone') {
+        if (q.title === 'Phone Capture') {
             dynamicFlowText += `\n\n📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
 
    [INTERNAL INSTRUCTION: DO NOT AUTO-CORRECT]
@@ -92,7 +92,7 @@ export function getRyansPrompt() {
    PHASE 3: CONFIRMATION
    - If User says "Yes": Move to Step 4.
    - If User says "No": Apologize, clear the data, and ask again.\n`;
-        } else if (q.id === 'dateTime') {
+        } else if (q.title === 'Date & Time') {
             dynamicFlowText += `\n(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).\n`;
         } else if (q.instructions) {
              dynamicFlowText += ` (${q.instructions})\n`;
@@ -189,6 +189,16 @@ Restaurant-related but outside booking scope (like events or catering):
 - Only say "reservation confirmed" after payment is made.
 - Stay calm, friendly, and efficient in all replies.
 - Bring the flow back to booking details if the caller drifts.
+- 📞 PHONE NUMBER READ-BACK IN FINAL CONFIRMATION (Pair Format Rule):
+  When reading the phone number during the final booking confirmation summary, 
+  always group the digits into pairs of two and speak each digit individually, 
+  with a short pause between pairs.
+  
+  Example: "076-529-8670" → say "zero seven, six five, two nine, eight six, seven zero"
+  Example: "8319377879"   → say "eight three, one nine, three seven, seven eight, seven nine"
+
+  This applies ONLY to the final confirmation summary, NOT during earlier 
+  phone capture verification steps.
 
 ✅ Example tone:
 Caller: "Hi, this is Thabo. I'd like to book a table for Friday at 7."
