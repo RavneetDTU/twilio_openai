@@ -368,7 +368,7 @@ Each persona object shape: `{ id, name, model, voice, temperature, get instructi
 
 ---
 
-### `src/routes/`
+### `src/routes/` 
 
 Thin Express routers — delegate all business logic to service layer.
 
