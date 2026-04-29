@@ -1,239 +1,391 @@
-# Twilio OpenAI Voice Bot
+# Jarvis Calling — AI Voice Booking Backend
 
-AI-powered voice assistant for restaurant booking using Twilio and OpenAI Realtime API. Handles incoming calls, records conversations, transcribes audio, extracts booking information, and sends automated SMS with payment links.
+A production-ready Node.js backend that connects **Twilio Media Streams** with the **OpenAI Realtime API** to deliver real-time AI voice assistants for restaurant reservation booking. The system handles the full post-call pipeline: dual-channel recording, Whisper transcription, GPT-4 booking extraction, SMS payment links via Twilio, and PayFast payment processing — all persisted to Firebase Firestore.
 
-## Features
+---
 
-- 🤖 **AI Voice Assistant** - Real-time conversation using OpenAI Realtime API
-- 📞 **Call Handling** - Twilio integration for incoming calls
-- ⏺️ **Call Recording** - Dual-channel recording with automatic download
-- 📝 **Transcription** - Automatic audio-to-text conversion
-- 📊 **Data Extraction** - Extract booking details (name, time, guests, allergies)
-- 💬 **SMS Notifications** - Automated SMS with payment links
-- 🔥 **Firebase Integration** - Store call logs and booking data
-- 🎭 **Multi-Persona Support** - Different AI personalities per restaurant
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Environment Variables](#environment-variables)
+- [Getting Started](#getting-started)
+- [API Reference](#api-reference)
+- [Code Reference](#code-reference)
+
+---
+
+## Architecture Overview
+
+```
+Incoming Call (Twilio)
+       │
+       ▼
+POST /incoming-call          ← Twilio webhook; starts dual-channel recording
+       │
+       ▼
+WebSocket /media-stream      ← Raw μ-law audio stream from Twilio
+       │
+  Dispatcher                 ← Maps caller number → restaurant persona
+       │
+       ▼
+OpenAI Realtime API (WSS)    ← GPT-4o Realtime; server-side VAD + TTS
+       │
+       ▼
+POST /recording-complete     ← Twilio callback when recording is ready
+       │
+  Download → Transcribe      ← Twilio MP3 → OpenAI Whisper
+       │
+  GPT-4 Extraction           ← Structured booking JSON from transcript
+       │
+  Reservation API + SMS      ← External dashboard sync + Twilio SMS
+       │
+  PayFast ITN                ← Payment confirmation & Firestore update
+```
+
+---
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express
-- **AI**: OpenAI Realtime API (GPT-4 Realtime)
-- **Telephony**: Twilio Voice & SMS
-- **Database**: Firebase Firestore
-- **WebSocket**: Real-time audio streaming
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js (ESM) |
+| Framework | Express 5 |
+| Real-time Audio | WebSocket (`ws`) |
+| Voice AI | OpenAI Realtime API (`gpt-realtime-mini`) |
+| Transcription | OpenAI Whisper (`whisper-1`) |
+| Booking Extraction | OpenAI GPT-4 |
+| Telephony | Twilio (Calls, Recordings, SMS, Lookup) |
+| Database | Firebase Firestore (via `firebase-admin`) |
+| Payment Gateway | PayFast (ITN / webhook) |
+| Logging | Winston + `winston-daily-rotate-file` |
+| Process Manager | Nodemon (dev) |
 
-## Prerequisites
-
-- Node.js (v14 or higher)
-- Twilio account with phone number
-- OpenAI API key
-- Firebase project with Firestore enabled
-
-## Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd new_twilio_openai
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Create `.env` file**
-   ```bash
-   # Copy and fill in your credentials
-   OPENAI_API_KEY=your_openai_api_key
-   TWILIO_ACCOUNT_SID=your_twilio_account_sid
-   TWILIO_AUTH_TOKEN=your_twilio_auth_token
-   TWILIO_PHONE_NUMBER=your_twilio_phone_number
-   PORT=9000
-   ```
-
-4. **Add Firebase credentials**
-   - Download your Firebase Admin SDK JSON file
-   - Place it in the project root
-   - Update the filename in `src/config/firebase.js` if needed
-
-5. **Create recordings folder** (optional - auto-created)
-   ```bash
-   mkdir recordings
-   ```
-
-## Configuration
-
-### Restaurant Configuration
-
-Edit `src/prompts/prompts.json` to configure restaurant settings:
-
-```json
-{
-  "restaurantId": "resto_bjorns_001",
-  "name": "Bjorn's Steakhouse",
-  "settings": {
-    "depositAmount": 750,
-    "currency": "rand",
-    "timezone": "Africa/Johannesburg"
-  },
-  "operatingHours": {
-    "Monday": { "open": "12:00 PM", "close": "10:00 PM" }
-  }
-}
-```
-
-### Bot Personas
-
-Configure different AI personalities in `src/dispatcher.js` based on caller phone numbers.
-
-## Usage
-
-### Start the Server
-
-```bash
-npm start
-# or
-node server.js
-```
-
-Server will run on `http://localhost:9000`
-
-### Configure Twilio Webhook
-
-1. Go to your Twilio Console
-2. Select your phone number
-3. Under "Voice & Fax", set:
-   - **A CALL COMES IN**: `https://your-domain.com/incoming-call`
-   - **METHOD**: HTTP POST
-
-### Test the System
-
-1. Call your Twilio phone number
-2. The AI assistant will answer and handle the conversation
-3. After the call, check:
-   - Recording saved in `recordings/` folder
-   - Call log in Firebase Firestore
-   - SMS sent to customer (if booking data is complete)
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Health check |
-| `/incoming-call` | POST | Twilio webhook for incoming calls |
-| `/recording-complete` | POST | Twilio webhook for recording completion |
-| `/update-config` | POST | Update restaurant configuration |
-| `/api/sms/send` | POST | Send manual SMS |
-| `/api/sms/status/:messageSid` | GET | Check SMS delivery status |
-| `/api/payment/verify` | POST | Verify payment completion |
+---
 
 ## Project Structure
 
 ```
-new_twilio_openai/
+.
+├── server.js                   # Main entry point — Express + WebSocket server
+├── app.js                      # Legacy prototype (not used in production)
 ├── src/
-│   ├── bot_models/          # AI persona configurations
-│   ├── config/              # Firebase and app configuration
-│   ├── models/              # Data models (CallLog)
-│   ├── prompts/             # AI prompts and restaurant config
-│   ├── routes/              # API routes (SMS, Payment)
-│   ├── services/            # Business logic (Call, SMS)
-│   ├── utils/               # Utilities (download, transcription)
-│   └── dispatcher.js        # Route calls to correct persona
-├── recordings/              # Call recordings (not in git)
-├── .env                     # Environment variables (not in git)
-├── .gitignore              # Git ignore rules
-├── server.js               # Main server file
-└── package.json            # Dependencies
+│   ├── dispatcher.js           # Maps caller phone number → AI persona
+│   ├── bot_models/             # AI persona configurations
+│   │   ├── billys.js
+│   │   ├── ryans.js
+│   │   ├── bjorns.js
+│   │   └── wine_tasting.js
+│   ├── prompts/                # System prompt builders + config store
+│   │   ├── billys_prompt.js
+│   │   ├── ryans_prompt.js
+│   │   ├── bjorns_prompt.js
+│   │   ├── wine_tasting_prompt.js
+│   │   └── prompts.json        # Restaurant settings, hours, question flows
+│   ├── config/
+│   │   └── firebase.js         # Firebase Admin SDK initialization
+│   ├── models/
+│   │   └── CallLog.js          # Mongoose schema reference (Firestore is active DB)
+│   ├── routes/
+│   │   ├── booking.js          # POST /api/booking/manual/:restaurantId
+│   │   ├── sms.js              # POST /api/sms/send, GET /api/sms/status/:callSid
+│   │   ├── payment.js          # GET /api/payment/:paymentId
+│   │   ├── payfastNotify.js    # POST /api/payfast/notify, GET /api/payfast/payments/:restaurantId
+│   │   └── verify.js           # POST /api/verify/phone
+│   ├── services/
+│   │   ├── callService.js      # Core call lifecycle: create/update CallLog, transcribe, extract, notify
+│   │   ├── smsService.js       # Twilio SMS — payment links + automated post-call SMS
+│   │   ├── manualBookingService.js  # Manual booking creation + SMS dispatch
+│   │   └── payfastService.js   # PayFast ITN signature, domain, amount validation
+│   └── utils/
+│       ├── config.js           # Read/write prompts.json — restaurant settings & question flow
+│       ├── download.js         # Stream Twilio recording MP3 to local disk
+│       ├── extraction.js       # GPT-4 booking data extraction from transcript
+│       ├── transcription.js    # OpenAI Whisper audio-to-text
+│       └── logger.js           # Winston logger with daily log rotation
+├── logs/                       # Auto-created; daily rotating call logs (7-day retention)
+├── recordings/                 # Auto-created; downloaded Twilio MP3 recordings
+└── prompts.json                # See src/prompts/prompts.json
 ```
+
+---
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenAI API key | ✅ Yes |
-| `TWILIO_ACCOUNT_SID` | Twilio account SID | ✅ Yes |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token | ✅ Yes |
-| `TWILIO_PHONE_NUMBER` | Your Twilio phone number | ✅ Yes |
-| `PORT` | Server port (default: 9000) | ❌ No |
+Create a `.env` file in the project root:
 
-## Deployment
+```env
+# OpenAI
+OPENAI_API_KEY=sk-...
 
-### Using PM2 (Recommended)
+# Twilio
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=+1...
 
-```bash
-# Install PM2
-npm install -g pm2
+# PayFast
+PAYFAST_PASSPHRASE=your_passphrase
+PAYFAST_SANDBOX=false
 
-# Start application
-pm2 start server.js --name twilio-voice-bot
+# Firebase (fallback if JSON file is absent)
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 
-# View logs
-pm2 logs twilio-voice-bot
+# Frontend
+PAYMENT_FRONTEND_URL=https://mybookip.vercel.app
 
-# Restart
-pm2 restart twilio-voice-bot
-
-# Stop
-pm2 stop twilio-voice-bot
+# Server
+PORT=9000
 ```
 
-### Important Notes
+> Firebase credentials are loaded from `twilio-openai-calls-firebase-adminsdk-fbsvc-8a3ff10c65.json` at project root. The `FIREBASE_SERVICE_ACCOUNT` env var is a fallback for environments where the file cannot be committed.
 
-- ⚠️ **Do NOT commit** `.env` file or Firebase credentials to Git
-- ⚠️ **Do NOT commit** `recordings/` folder (contains customer data)
-- ✅ Ensure your server has a public HTTPS URL for Twilio webhooks
-- ✅ Set up SSL certificate (Twilio requires HTTPS)
+---
 
-## Troubleshooting
+## Getting Started
 
-### Common Issues
-
-**"Cannot find module"**
 ```bash
+# Install dependencies
 npm install
+
+# Start development server (nodemon)
+npm start
 ```
 
-**"Missing OpenAI API key"**
-- Check `.env` file exists and contains `OPENAI_API_KEY`
+The server starts on the port defined in `PORT` (default: `9000`).
 
-**"Firebase connection failed"**
-- Verify Firebase credentials JSON file is in project root
-- Check file path in `src/config/firebase.js`
+**Twilio Configuration** — set these webhooks in your Twilio console:
 
-**"Recording download failed"**
-- Verify Twilio credentials in `.env`
-- Check `recordings/` folder has write permissions
+| Event | URL |
+|---|---|
+| Incoming Call | `https://<your-domain>/incoming-call` |
+| Recording Status | `https://<your-domain>/recording-complete` |
+| PayFast Notify URL | `https://<your-domain>/api/payfast/notify` |
 
-**"SMS not sending"**
-- Verify `TWILIO_PHONE_NUMBER` in `.env`
-- Check Twilio account has SMS capabilities
+---
 
-## Development
+## API Reference
 
-### Adding a New Restaurant
+### Webhooks (Twilio)
 
-1. Create new bot model in `src/bot_models/`
-2. Create new prompt in `src/prompts/`
-3. Update `src/dispatcher.js` to route calls
-4. Update `prompts.json` with restaurant config
+| Method | Path | Description |
+|---|---|---|
+| `ALL` | `/incoming-call` | Twilio webhook; returns TwiML to start media stream + recording |
+| `POST` | `/recording-complete` | Twilio recording callback; triggers download → transcription → extraction pipeline |
 
-### Testing Locally with ngrok
+### Restaurant Config
 
-```bash
-# Install ngrok
-npm install -g ngrok
+| Method | Path | Body / Params | Description |
+|---|---|---|---|
+| `POST` | `/api/update-config` | `{ restaurantId, settings?, operatingHours?, questionFlow? }` | Merge-update restaurant settings |
+| `GET` | `/api/restaurant/:id/details` | `:id` = restaurant ID | Fetch full restaurant config |
+| `POST` | `/api/question/add` | `{ restaurantId, question: { title, botMessage, isRequired, instructions? } }` | Add question to AI flow |
+| `DELETE` | `/api/question/delete` | `{ restaurantId, questionId }` | Remove question by ID |
 
-# Expose local server
-ngrok http 9000
+### Booking
 
-# Use the HTTPS URL in Twilio webhook configuration
-```
+| Method | Path | Body / Params | Description |
+|---|---|---|---|
+| `POST` | `/api/booking/manual/:restaurantId` | `{ name, phoneNo, guests, date?, time?, allergy?, notes? }` | Create manual booking + send SMS |
+| `GET` | `/api/payment/:paymentId` | `:paymentId` = UUID | Fetch booking details for payment page |
 
-## License
+### SMS
 
-MIT
+| Method | Path | Body / Params | Description |
+|---|---|---|---|
+| `POST` | `/api/sms/send` | `{ callSid }` | Manually resend payment SMS for a call |
+| `GET` | `/api/sms/status/:callSid` | `:callSid` | Get SMS delivery status for a call |
 
-## Support
+### Payments (PayFast)
 
-For issues or questions, please contact the development team.
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/payfast/notify` | PayFast ITN endpoint — validates & records payment |
+| `GET` | `/api/payfast/payments/:restaurantId` | List all payments for a restaurant |
+
+### Utilities
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| `POST` | `/api/verify/phone` | `{ phoneNumber }` | Validate phone number via Twilio Lookup v2 |
+
+---
+
+## Code Reference
+
+### `server.js`
+
+Entry point. Bootstraps Express, HTTP server, and WebSocket server. Registers all route groups and handles the real-time call flow.
+
+| Function / Handler | Input | Output | Purpose |
+|---|---|---|---|
+| `POST /incoming-call` | Twilio webhook body (`From`, `CallSid`, `To`) | TwiML XML response | Creates CallLog, starts dual-channel recording, returns WebSocket stream URL |
+| `POST /recording-complete` | `{ CallSid, RecordingUrl, RecordingDuration }` | HTTP 200 | Triggers `updateCallLog` post-call pipeline |
+| `wss.on('connection')` | WebSocket upgrade from Twilio | — | Manages full call session state |
+| `handleSpeechStartedEvent()` | — (reads session state) | Sends truncation + clear to Twilio | Cancels AI audio mid-speech on user interruption |
+| `sendMark()` | — (reads `streamSid`) | Sends mark event to Twilio | Keeps audio playback timing in sync |
+| `connectToOpenAI(persona)` | Persona config object | Opens OpenAI WebSocket | Initializes OpenAI Realtime session with persona instructions and voice |
+
+---
+
+### `src/dispatcher.js`
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `getPersonaByNumber(callerNumber)` | `string` — E.164 phone number | Persona config object | Maps caller number to the correct restaurant AI persona; defaults to Billy's |
+
+---
+
+### `src/config/firebase.js`
+
+Initializes Firebase Admin SDK on import. Exports `db` (Firestore instance).
+
+| Export | Purpose |
+|---|---|
+| `db` | Active Firestore instance used across all services |
+
+---
+
+### `src/services/callService.js`
+
+Core post-call pipeline. Handles the full lifecycle from call start to reservation sync.
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `createCallLog({ callSid, from, to })` | Call identifiers | Saved Firestore document | Creates initial CallLog at call start; resolves restaurant from caller number |
+| `updateCallLog({ callSid, recordingUrl, duration })` | Recording details | Updated Firestore document | Downloads MP3 → transcribes → extracts booking → classifies → syncs to API + sends SMS |
+| `getRestaurantInfo(callerPhone)` *(internal)* | E.164 phone string | `{ id, name }` | Resolves restaurant ID/name from `RESTAURANT_MAP` |
+| `classifyBooking(bookingData)` *(internal)* | Extracted booking object | `'complete'` \| `'failed'` | Marks booking complete only if name + phone + date are all present |
+| `sendReservationToApi(restaurantId, paymentId, bookingData, transcript)` *(internal)* | Booking details | API response object | POSTs completed booking to external reservation dashboard |
+| `sendFailedBookingToApi(restaurantId, bookingData, transcript)` *(internal)* | Partial booking data | API response object | POSTs incomplete bookings to failed-bookings endpoint with "Not Provided" fallbacks |
+
+---
+
+### `src/services/smsService.js`
+
+Class `SmsService` — singleton export. Handles all outbound SMS via Twilio.
+
+| Method | Input | Output | Purpose |
+|---|---|---|---|
+| `formatPhoneNumber(phoneNumber, defaultCountryCode)` | Raw phone string | E.164 formatted string | Normalizes phone numbers; handles India (`+91`) and South Africa (`+27`) |
+| `formatTo12Hour(timeStr)` | `"HH:mm"` or AM/PM string | `"h:mm AM/PM"` string | Converts 24-hour time to 12-hour format for SMS readability |
+| `sendPaymentSms({ customerName, customerPhone, numberOfGuests, bookingDate, bookingTime, paymentId, restaurantName, bookingAmount })` | Booking + payment details | `{ success, sid, status, sentAt }` | Sends SMS with booking summary and optional payment link |
+| `sendAutomatedSms(bookingData, paymentId, restaurantName)` | Extracted booking object + paymentId | `{ success, sid, status, sentAt }` | Post-call automation wrapper around `sendPaymentSms` |
+
+---
+
+### `src/services/manualBookingService.js`
+
+Class `ManualBookingService` — singleton export.
+
+| Method | Input | Output | Purpose |
+|---|---|---|---|
+| `createManualBooking(restaurantId, bookingData)` | `restaurantId` string + `{ name, phoneNo, guests, date?, time?, allergy?, notes? }` | `{ success, paymentId, smsStatus, smsDetails }` | Creates Firestore record, pushes to reservation API, sends SMS payment link |
+
+---
+
+### `src/services/payfastService.js`
+
+Stateless PayFast ITN validation helpers.
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `validateSignature(data, passphrase)` | PayFast POST body + passphrase | `boolean` | MD5 signature verification per PayFast spec |
+| `validatePayfastDomain(req)` | Express request object | `Promise<boolean>` | DNS-resolves PayFast domains; validates incoming request IP |
+| `confirmWithPayfast(data)` | PayFast POST body | `Promise<boolean>` | Server-to-server confirmation; expects `"VALID"` response from PayFast |
+| `validateAmount(receivedAmount, expectedAmount)` | Two numeric values | `boolean` | Compares amounts with ±0.01 tolerance for floating-point safety |
+
+---
+
+### `src/utils/config.js`
+
+Reads and writes `src/prompts/prompts.json` — the live restaurant configuration store.
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `updateConfig(updates)` | `{ restaurantId, settings?, operatingHours?, questionFlow? }` | Updated restaurant object | Smart-merges partial updates into the config file |
+| `getRestaurantDetails(restaurantId)` | `string` | Full restaurant config object | Reads and returns a single restaurant's config |
+| `addQuestion(restaurantId, newQuestion)` | `restaurantId` + `{ title, botMessage, isRequired, instructions? }` | Updated restaurant object | Inserts new question at second-to-last position; auto-generates `id` and re-orders |
+| `deleteQuestion(restaurantId, questionId)` | `restaurantId` + `questionId` | Updated restaurant object | Removes question by `id`; re-numbers remaining questions |
+| `normaliseOrders(questionFlow)` *(internal)* | Question array (mutable) | — | Re-assigns `order` values as 1…N after any insert or delete |
+
+---
+
+### `src/utils/extraction.js`
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `extractBookingData(transcriptText)` | Raw conversation transcript string | `Promise<Object\|null>` | Sends transcript to GPT-4; returns structured `{ name, date, time, guests, phoneNo, allergy, notes }` |
+
+---
+
+### `src/utils/transcription.js`
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `transcribeAudio(filePath)` | Absolute path to local MP3 file | `Promise<string\|null>` | Sends audio file to OpenAI Whisper; returns transcript text |
+
+---
+
+### `src/utils/download.js`
+
+| Function | Input | Output | Purpose |
+|---|---|---|---|
+| `downloadFile(url, outputPath)` | Twilio recording URL + local save path | `Promise<string>` — resolves with `outputPath` | Streams Twilio MP3 to disk with Basic Auth; appends `.mp3` extension if missing |
+
+---
+
+### `src/utils/logger.js`
+
+Singleton Winston logger. Writes timestamped logs to console and daily-rotating files under `logs/call-YYYY-MM-DD.log` (7-day retention).
+
+---
+
+### `src/bot_models/`
+
+Each file exports a persona config object consumed by `dispatcher.js` and `server.js`.
+
+| File | Persona | Voice | Model |
+|---|---|---|---|
+| `billys.js` | Billy's Steakhouse | `cedar` (male) | `gpt-realtime-mini` |
+| `ryans.js` | Ryan's Steakhouse | female voice | `gpt-realtime-mini` |
+| `bjorns.js` | Bjorn's Steakhouse | female voice | `gpt-realtime-mini` |
+| `wine_tasting.js` | Wine Tasting Terrance | — | `gpt-realtime-mini` |
+
+Each persona object shape: `{ id, name, model, voice, temperature, get instructions() }`.
+
+---
+
+### `src/prompts/`
+
+| File | Purpose |
+|---|---|
+| `billys_prompt.js` | Exports `getBillysPrompt()` — builds dynamic system prompt from `prompts.json` config |
+| `ryans_prompt.js` | Same pattern for Ryan's Steakhouse |
+| `bjorns_prompt.js` | Same pattern for Bjorn's Steakhouse |
+| `wine_tasting_prompt.js` | Same pattern for Wine Tasting Terrance |
+| `prompts.json` | Source-of-truth config: restaurant name, operating hours, deposit amount, question flow per restaurant |
+
+---
+
+### `src/routes/`
+
+Thin Express routers — delegate all business logic to service layer.
+
+| File | Endpoints | Delegates to |
+|---|---|---|
+| `booking.js` | `POST /api/booking/manual/:restaurantId` | `manualBookingService.createManualBooking` |
+| `sms.js` | `POST /api/sms/send`, `GET /api/sms/status/:callSid` | `smsService`, Firestore |
+| `payment.js` | `GET /api/payment/:paymentId` | Firestore (`callLogs`, `manualBookings`) |
+| `payfastNotify.js` | `POST /api/payfast/notify`, `GET /api/payfast/payments/:restaurantId` | `payfastService`, Firestore |
+| `verify.js` | `POST /api/verify/phone` | Twilio Lookup v2 |
+
+---
+
+## Firestore Collections
+
+| Collection | Description |
+|---|---|
+| `callLogs` | One document per call; keyed by `callSid` |
+| `manualBookings` | One document per manual booking; keyed by `paymentId` |
+| `payments` | One document per PayFast ITN; keyed by `paymentId` |
