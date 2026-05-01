@@ -16,6 +16,7 @@ import bookingRoutes from './src/routes/booking.js';
 import paymentRoutes from './src/routes/payment.js';
 import payfastNotifyRoutes from './src/routes/payfastNotify.js';
 import verifyRoutes from './src/routes/verify.js';
+import refundRoutes from './src/routes/refund.js';
 import './src/config/firebase.js'; // Initialize Firebase
 
 dotenv.config();
@@ -60,6 +61,9 @@ app.use('/api/payfast', payfastNotifyRoutes);
 
 // Phone Verification routes
 app.use('/api/verify', verifyRoutes);
+
+// Refund API routes
+app.use('/api/refund', refundRoutes);
 
 // 2. INCOMING CALL - Pass Caller Number to WebSocket
 app.all('/incoming-call', async (req, res) => {
