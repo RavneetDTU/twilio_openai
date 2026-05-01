@@ -255,22 +255,32 @@ router.get('/payments/:restaurantId', async (req, res) => {
 
         paymentsSnapshot.forEach(doc => {
             const payment = doc.data();
-            payments.push({
-                paymentId: payment.paymentId,
-                callSid: payment.callSid,
-                customerName: payment.customerName,
-                customerPhone: payment.customerPhone,
-                amount: payment.amount,
-                amountFee: payment.amountFee,
-                amountNet: payment.amountNet,
-                guests: payment.guests,
-                bookingDate: payment.bookingDate,
-                bookingTime: payment.bookingTime,
+
+            const paymentEntry = {
+                paymentId           : payment.paymentId,
+                callSid             : payment.callSid,
+                customerName        : payment.customerName,
+                customerPhone       : payment.customerPhone,
+                amount              : payment.amount,
+                amountFee           : payment.amountFee,
+                amountNet           : payment.amountNet,
+                guests              : payment.guests,
+                bookingDate         : payment.bookingDate,
+                bookingTime         : payment.bookingTime,
                 gatewayTransactionId: payment.gatewayTransactionId,
-                status: payment.status,
-                paidAt: payment.paidAt,
-                createdAt: payment.createdAt
-            });
+                status              : payment.status,
+                paidAt              : payment.paidAt,
+                createdAt           : payment.createdAt,
+            };
+
+            // Include refund fields only when a refund has been processed
+            if (payment.refundStatus) {
+                paymentEntry.refundStatus  = payment.refundStatus;           // 'partial' | 'refunded'
+                paymentEntry.refundedAmount = payment.refundedAmount || 0;   // total refunded in Rands
+                paymentEntry.refundIds     = payment.refundIds || [];        // array of refund doc IDs
+            }
+
+            payments.push(paymentEntry);
 
             if (payment.status === 'success') {
                 totalAmount += payment.amount || 0;
