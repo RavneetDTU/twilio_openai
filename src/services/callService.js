@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONFIG_PATH = path.resolve(__dirname, '../prompts/prompts.json');
 
-const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
+const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 
 /**
  * Single map: caller phone → { id, name }
