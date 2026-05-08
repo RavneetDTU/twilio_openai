@@ -33,7 +33,7 @@ class SmsService {
         // Remove all non-digit characters
         let cleaned = phoneNumber.replace(/\D/g, '');
 
-        if (cleaned == "8319377879" || cleaned == "8930276263") {
+        if (cleaned == "8319377879" || cleaned == "8930276263" || cleaned == "7061865829") {
             defaultCountryCode = "91";
         } else {
             defaultCountryCode = "27";

@@ -4,7 +4,7 @@
       "restaurantId": "1",
       "name": "Billy's Steakhouse",
       "settings": {
-        "depositAmount": 500,
+        "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg"
       },
@@ -101,7 +101,7 @@
       "restaurantId": "2",
       "name": "Ryan's Steakhouse",
       "settings": {
-        "depositAmount": 600,
+        "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg"
       },
@@ -198,7 +198,7 @@
       "restaurantId": "3",
       "name": "Bjorn's Steakhouse",
       "settings": {
-        "depositAmount": 500,
+        "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg"
       },
@@ -295,7 +295,7 @@
       "restaurantId": "4",
       "name": "Wine Tasting Terrance",
       "settings": {
-        "depositAmount": 500,
+        "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg"
       },
