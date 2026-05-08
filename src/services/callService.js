@@ -37,8 +37,10 @@ const getRestaurantInfo = (callerPhone) => {
 
 const getRestaurantNotificationEmail = (restaurantDetails) => {
     return (
+        restaurantDetails?.RestauranEmail ||
         restaurantDetails?.notificationEmail ||
         restaurantDetails?.email ||
+        restaurantDetails?.settings?.RestauranEmail ||
         restaurantDetails?.settings?.notificationEmail ||
         restaurantDetails?.settings?.email ||
         null

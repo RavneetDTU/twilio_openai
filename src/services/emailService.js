@@ -42,7 +42,7 @@ export const sendBookingNotificationEmail = async ({
 
     const subject = `New Booking: ${restaurantName || 'Restaurant'} - ${customerName || 'Guest'}`;
     const text = [
-        'A new booking has been created.',
+        'A new booking has been created. Please find the details below:',
         '',
         `Restaurant: ${restaurantName || 'N/A'}`,
         `Customer Name: ${customerName || 'N/A'}`,
@@ -52,6 +52,9 @@ export const sendBookingNotificationEmail = async ({
         `Time: ${bookingTime || 'N/A'}`,
         `Payment ID: ${paymentId || 'N/A'}`,
         `Booking Amount: ${bookingAmount ?? 0}`,
+        '',
+        'Regards,',
+        'Billy Steakhouse'
     ].join('\n');
 
     try {

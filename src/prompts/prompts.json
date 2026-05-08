@@ -3,6 +3,7 @@
     {
       "restaurantId": "1",
       "name": "Billy's Steakhouse",
+      "RestauranEmail": "abhimanyukumar706186@gmail.com",
       "settings": {
         "depositAmount": 500,
         "currency": "rand",
@@ -100,6 +101,7 @@
     {
       "restaurantId": "2",
       "name": "Ryan's Steakhouse",
+      "RestauranEmail": "ravneet.dtu@gmail.com",
       "settings": {
         "depositAmount": 600,
         "currency": "rand",
@@ -197,6 +199,7 @@
     {
       "restaurantId": "3",
       "name": "Bjorn's Steakhouse",
+      "RestauranEmail": "senayush920@gmail.com",
       "settings": {
         "depositAmount": 500,
         "currency": "rand",
@@ -294,6 +297,7 @@
     {
       "restaurantId": "4",
       "name": "Wine Tasting Terrance",
+      "RestauranEmail": "abhiroy829429@gmail.com",
       "settings": {
         "depositAmount": 500,
         "currency": "rand",

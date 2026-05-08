@@ -32,8 +32,10 @@ class ManualBookingService {
                 depositAmount = Number(details.depositAmount || details.settings?.depositAmount) || 0;
                 restaurantName = details.name || restaurantName;
                 restaurantNotificationEmail =
+                    details.RestauranEmail ||
                     details.notificationEmail ||
                     details.email ||
+                    details.settings?.RestauranEmail ||
                     details.settings?.notificationEmail ||
                     details.settings?.email ||
                     null;
