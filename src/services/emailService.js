@@ -1,6 +1,12 @@
 import nodemailer from 'nodemailer';
 import logger from '../utils/logger.js';
 
+const NOTIFICATION_CC_EMAILS = [
+    'ryan.hearingaidlabs@gmail.com',
+    'bjornguido@gmail.com',
+    'ravneet.dtu@gmail.com'
+];
+
 const createSmtpTransporter = () => {
     const host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
     const port = Number(process.env.SMTP_PORT || 587);
@@ -62,6 +68,7 @@ export const sendBookingNotificationEmail = async ({
         const response = await transporter.sendMail({
             from: fromAddress,
             to: toEmail,
+            cc: NOTIFICATION_CC_EMAILS,
             subject,
             text
         });
