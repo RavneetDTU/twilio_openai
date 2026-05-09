@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 const NOTIFICATION_CC_EMAILS = [
     'ryan.hearingaidlabs@gmail.com',
     'bjornguido@gmail.com',
-    'ravneet.dtu@gmail.com'
+    'senayush920@gmail.com'
 ];
 
 const createSmtpTransporter = () => {
