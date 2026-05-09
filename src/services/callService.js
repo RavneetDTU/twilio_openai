@@ -37,10 +37,10 @@ const getRestaurantInfo = (callerPhone) => {
 
 const getRestaurantNotificationEmail = (restaurantDetails) => {
     return (
-        restaurantDetails?.RestauranEmail ||
+        restaurantDetails?.RestaurantEmail ||
         restaurantDetails?.notificationEmail ||
         restaurantDetails?.email ||
-        restaurantDetails?.settings?.RestauranEmail ||
+        restaurantDetails?.settings?.RestaurantEmail ||
         restaurantDetails?.settings?.notificationEmail ||
         restaurantDetails?.settings?.email ||
         null
