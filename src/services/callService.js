@@ -5,13 +5,13 @@ import { transcribeAudio } from '../utils/transcription.js';
 import { extractBookingData } from '../utils/extraction.js';
 import { v4 as uuidv4 } from 'uuid';
 import smsService from './smsService.js';
+import { sendBookingNotificationEmail } from './emailService.js';
+import { getRestaurantDetails } from '../utils/config.js';
 import path from 'path';
-import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const CONFIG_PATH = path.resolve(__dirname, '../prompts/prompts.json');
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 
@@ -33,6 +33,18 @@ const getRestaurantInfo = (callerPhone) => {
     const info = RESTAURANT_MAP[callerPhone] || DEFAULT_RESTAURANT;
     logger.info(`🏪 Restaurant resolved: ${info.name} (ID: ${info.id}) for caller: ${callerPhone}`);
     return info;
+};
+
+const getRestaurantNotificationEmail = (restaurantDetails) => {
+    return (
+        restaurantDetails?.RestaurantEmail ||
+        restaurantDetails?.notificationEmail ||
+        restaurantDetails?.email ||
+        restaurantDetails?.settings?.RestaurantEmail ||
+        restaurantDetails?.settings?.notificationEmail ||
+        restaurantDetails?.settings?.email ||
+        null
+    );
 };
 
 /**
@@ -263,17 +275,17 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
         const existingData = callLogDoc.data();
         logger.info(`🏪 Booking Restaurant: ${existingData.restaurantName} (ID: ${existingData.restaurantId})`);
 
-        // Load prompts.json to get deposit amount
+        // Fetch restaurant details for deposit and notification email
         let depositAmount = 0;
+        let restaurantNotificationEmail = null;
         try {
-            const fileData = await fs.readFile(CONFIG_PATH, 'utf-8');
-            const data = JSON.parse(fileData);
-            const restaurantConfig = data.restaurants.find(r => r.restaurantId === existingData.restaurantId);
-            if (restaurantConfig && restaurantConfig.settings && restaurantConfig.settings.depositAmount) {
-                depositAmount = Number(restaurantConfig.settings.depositAmount) || 0;
-            }
+            const restaurantDetails = await getRestaurantDetails(existingData.restaurantId);
+            depositAmount = Number(
+                restaurantDetails?.depositAmount || restaurantDetails?.settings?.depositAmount || 0
+            );
+            restaurantNotificationEmail = getRestaurantNotificationEmail(restaurantDetails);
         } catch (configErr) {
-            logger.error(`❌ Failed to read deposit amount for ${callSid}: ${configErr.message}`);
+            logger.error(`❌ Failed to read restaurant details for ${callSid}: ${configErr.message}`);
         }
 
         // Calculate total booking amount
@@ -345,6 +357,39 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
                 }
             } catch (smsError) {
                 logger.error(`❌ SMS error for ${callSid}: ${smsError.message}`);
+            }
+
+            // Trigger restaurant email notification in the same post-booking phase as SMS
+            logger.info(`📧 Attempting restaurant email notification for ${callSid}...`);
+            const emailResult = await sendBookingNotificationEmail({
+                toEmail: restaurantNotificationEmail,
+                restaurantName: existingData.restaurantName,
+                customerName: bookingData?.name,
+                customerPhone: bookingData?.phoneNo,
+                guests: bookingData?.guests,
+                bookingDate: bookingData?.date,
+                bookingTime: bookingData?.time,
+                paymentId: existingData.paymentId,
+                bookingAmount
+            });
+
+            await callLogRef.update({
+                emailSent: emailResult.success,
+                emailDetails: {
+                    to: restaurantNotificationEmail,
+                    messageId: emailResult.messageId || null,
+                    accepted: emailResult.accepted || [],
+                    response: emailResult.response || null,
+                    sentAt: emailResult.sentAt || null,
+                    error: emailResult.error || null
+                },
+                updatedAt: new Date()
+            });
+
+            if (emailResult.success) {
+                logger.info(`✅ Restaurant notification email sent for ${callSid}`);
+            } else {
+                logger.warn(`⚠️ Restaurant notification email failed for ${callSid}: ${emailResult.error}`);
             }
         } else {
             // FAILED: Send to failed-bookings API

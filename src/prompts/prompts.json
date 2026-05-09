@@ -6,7 +6,8 @@
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
-        "timezone": "Africa/Johannesburg"
+        "timezone": "Africa/Johannesburg",
+        "RestaurantEmail": "abhimanyukumar706186@gmail.com"
       },
       "operatingHours": {
         "Monday": {
@@ -103,7 +104,8 @@
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
-        "timezone": "Africa/Johannesburg"
+        "timezone": "Africa/Johannesburg",
+        "RestaurantEmail": "ravneet.dtu@gmail.com"
       },
       "operatingHours": {
         "Monday": {
@@ -200,7 +202,8 @@
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
-        "timezone": "Africa/Johannesburg"
+        "timezone": "Africa/Johannesburg",
+        "RestaurantEmail": "senayush920@gmail.com"
       },
       "operatingHours": {
         "Monday": {
@@ -297,7 +300,8 @@
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
-        "timezone": "Africa/Johannesburg"
+        "timezone": "Africa/Johannesburg",
+        "RestaurantEmail": "abhiroy829429@gmail.com"
       },
       "operatingHours": {
         "Monday": {

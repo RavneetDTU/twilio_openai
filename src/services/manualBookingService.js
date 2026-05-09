@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../config/firebase.js';
 import smsService from './smsService.js';
+import { sendBookingNotificationEmail } from './emailService.js';
 import { getRestaurantDetails } from '../utils/config.js';
 import logger from '../utils/logger.js';
 
@@ -23,12 +24,21 @@ class ManualBookingService {
         // 1. Get deposit amount from restaurant config
         let depositAmount = 0;
         let restaurantName = "Billy's Steakhouse"; // default fallback
+        let restaurantNotificationEmail = null;
         
         try {
             const details = await getRestaurantDetails(restaurantId);
             if (details) {
                 depositAmount = Number(details.depositAmount || details.settings?.depositAmount) || 0;
                 restaurantName = details.name || restaurantName;
+                restaurantNotificationEmail =
+                    details.RestaurantEmail ||
+                    details.notificationEmail ||
+                    details.email ||
+                    details.settings?.RestaurantEmail ||
+                    details.settings?.notificationEmail ||
+                    details.settings?.email ||
+                    null;
             }
         } catch (configErr) {
             console.warn(`⚠️ Could not fetch restaurant details for ID: ${restaurantId}. Proceeding with default deposit of 0.`);
@@ -116,13 +126,43 @@ class ManualBookingService {
             }
         });
 
+        // 6.5 Send restaurant booking notification email
+        logger.info(`📧 Sending booking notification email for payment ID: ${paymentId}...`);
+        const emailResult = await sendBookingNotificationEmail({
+            toEmail: restaurantNotificationEmail,
+            restaurantName,
+            customerName: name,
+            customerPhone: phoneNo,
+            guests: Number(guests),
+            bookingDate: date || null,
+            bookingTime: time || null,
+            paymentId,
+            bookingAmount
+        });
+
+        await docRef.update({
+            emailStatus: emailResult.success ? 'Success' : 'Failed',
+            emailDetails: {
+                to: restaurantNotificationEmail,
+                messageId: emailResult.messageId || null,
+                accepted: emailResult.accepted || [],
+                response: emailResult.response || null,
+                sentAt: emailResult.sentAt || null,
+                error: emailResult.error || null
+            }
+        });
+
         // 7. Return Result
         return {
             success: true,
-            message: smsResult.success ? 'Booking saved and SMS sent' : 'Booking saved but SMS failed',
+            message: smsResult.success
+                ? 'Booking saved and SMS sent'
+                : 'Booking saved but SMS failed',
             paymentId,
             smsStatus,
-            smsDetails: smsResult
+            smsDetails: smsResult,
+            emailStatus: emailResult.success ? 'Success' : 'Failed',
+            emailDetails: emailResult
         };
     }
 }
