@@ -438,13 +438,19 @@ wss.on('connection', (connection, req) => {
                     logger.info(`🤖 BOT: ${botText}`);
 
                     // --- AUTO-HANGUP: End call after bot delivers closing message ---
-                    // Matches the final line: "...we look forward to welcoming you."
+                    // Reservation close:       "...we look forward to welcoming you."
+                    // Manager message close:   "...we look forward to speaking with you soon. Have a wonderful day!"
+                    //   → Bot sometimes paraphrases the middle phrase, so we also match
+                    //     "have a wonderful day" as a reliable end-of-manager-message signal.
                     // bookingCompleted flag ensures we only trigger this ONCE per call.
-                    const isClosingMessage = botText.toLowerCase().includes('look forward to welcoming you');
+                    const isClosingMessage =
+                        botText.toLowerCase().includes('look forward to welcoming you') ||
+                        botText.toLowerCase().includes('look forward to speaking with you') ||
+                        botText.toLowerCase().includes('have a wonderful day');
 
                     if (isClosingMessage && !bookingCompleted && sessionCallSid) {
                         bookingCompleted = true;
-                        logger.info('✅ Booking closing message detected. Scheduling call termination in 10s...');
+                        logger.info(`✅ Closing phrase detected: "${botText.substring(0, 60)}..." — scheduling call termination in 10s...`);
 
                         setTimeout(async () => {
                             try {
@@ -453,7 +459,7 @@ wss.on('connection', (connection, req) => {
                             } catch (hangupErr) {
                                 logger.error(`❌ Failed to end call ${sessionCallSid}: ${hangupErr.message}`);
                             }
-                        }, 10000); // 3-second delay — lets the audio finish before hanging up
+                        }, 8000); // 8-second delay — lets the audio finish before hanging up
                     }
                 }
 

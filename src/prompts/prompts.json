@@ -44,7 +44,7 @@
           "id": "q_a1b2c3d4-e5f6-4890-abcd-ef1234560001",
           "title": "Greeting",
           "order": 1,
-          "botMessage": "Hello! Welcome to Billy's Steak House. I'm the AI booking assistant. How can I help with a reservation today?",
+          "botMessage": "Hello! Welcome to Billy's Steak House — I can assist you with table reservations or messages for the manager.",
           "isRequired": true,
           "instructions": null
         },
@@ -142,7 +142,7 @@
           "id": "q_b2c3d4e5-f6a7-4890-bcde-f12345670001",
           "title": "Greeting",
           "order": 1,
-          "botMessage": "Hello! Welcome to Ryan's Steakhouse. I'm the AI booking assistant. How can I help with a reservation today?",
+          "botMessage": "Hello! Welcome to Ryan's Steak House — I can assist you with table reservations or messages for the manager.",
           "isRequired": true,
           "instructions": null
         },
@@ -240,7 +240,7 @@
           "id": "q_c3d4e5f6-a7b8-4890-cdef-012345780001",
           "title": "Greeting",
           "order": 1,
-          "botMessage": "Hello! Welcome to Bjorn's Steakhouse. I'm the AI booking assistant. How can I help with a reservation today?",
+          "botMessage": "Hello! Welcome to Bjorn's Steak House — I can assist you with table reservations or messages for the manager.",
           "isRequired": true,
           "instructions": null
         },
@@ -338,7 +338,7 @@
           "id": "q_d4e5f6a7-b8c9-4890-defa-123456890001",
           "title": "Greeting",
           "order": 1,
-          "botMessage": "Hello! Welcome to Wine Tasting Terrance. I'm the AI booking assistant. How can I help with a reservation today?",
+          "botMessage": "Hello! Welcome to Wine Tasting Terrance — I can assist you with table reservations or messages for the manager.",
           "isRequired": true,
           "instructions": null
         },
