@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import logger from './logger.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { db } from '../config/firebase.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,8 +61,18 @@ export const updateConfig = async (updates) => {
         // 5. Update the restaurant in the array
         data.restaurants[restaurantIndex] = restaurant;
 
-        // 6. Write File
+        // 6. Write File (JSON remains the live source of truth)
         await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8');
+
+        // 7. Mirror to Firestore (fire-and-forget — JSON is already saved above)
+        try {
+            await db.collection('twilio-call_restraurent')
+                .doc(restaurant.restaurantId)
+                .set({ ...restaurant, updatedAt: new Date() }, { merge: true });
+            logger.info(`🔥 Firestore synced for restaurant [${restaurant.restaurantId}]`);
+        } catch (firestoreErr) {
+            logger.warn(`⚠️ Firestore sync failed (JSON already saved): ${firestoreErr.message}`);
+        }
 
         logger.info(`✅ Config updated successfully for ${restaurant.name}`);
         return restaurant;
@@ -170,9 +181,19 @@ export const addQuestion = async (restaurantId, newQuestion) => {
         normaliseOrders(sorted);
         restaurant.questionFlow = sorted;
 
-        // 8. Write back
+        // 8. Write back (JSON remains the live source of truth)
         data.restaurants[restaurantIndex] = restaurant;
         await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8');
+
+        // 9. Mirror to Firestore
+        try {
+            await db.collection('twilio-call_restraurent')
+                .doc(restaurantId)
+                .set({ ...restaurant, updatedAt: new Date() }, { merge: true });
+            logger.info(`🔥 Firestore synced for restaurant [${restaurantId}] after addQuestion`);
+        } catch (firestoreErr) {
+            logger.warn(`⚠️ Firestore sync failed (JSON already saved): ${firestoreErr.message}`);
+        }
 
         logger.info(`✅ Question "${title}" (id: ${generatedId}) added to "${restaurant.name}"`);
         return restaurant;
@@ -220,9 +241,19 @@ export const deleteQuestion = async (restaurantId, questionId) => {
         restaurant.questionFlow.sort((a, b) => a.order - b.order);
         normaliseOrders(restaurant.questionFlow);
 
-        // 7. Write back
+        // 7. Write back (JSON remains the live source of truth)
         data.restaurants[restaurantIndex] = restaurant;
         await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8');
+
+        // 8. Mirror to Firestore
+        try {
+            await db.collection('twilio-call_restraurent')
+                .doc(restaurantId)
+                .set({ ...restaurant, updatedAt: new Date() }, { merge: true });
+            logger.info(`🔥 Firestore synced for restaurant [${restaurantId}] after deleteQuestion`);
+        } catch (firestoreErr) {
+            logger.warn(`⚠️ Firestore sync failed (JSON already saved): ${firestoreErr.message}`);
+        }
 
         logger.info(`✅ Question "${questionId}" deleted from "${restaurant.name}"`);
         return restaurant;
