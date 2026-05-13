@@ -2,7 +2,7 @@ import { db } from '../config/firebase.js';
 import logger from '../utils/logger.js';
 import { downloadFile } from '../utils/download.js';
 import { transcribeAudio } from '../utils/transcription.js';
-import { extractBookingData } from '../utils/extraction.js';
+import { extractBookingData, extractCallIntent, extractManagerMessageData } from '../utils/extraction.js';
 import { v4 as uuidv4 } from 'uuid';
 import smsService from './smsService.js';
 import { sendBookingNotificationEmail } from './emailService.js';
@@ -174,6 +174,53 @@ const sendReservationToApi = async (restaurantId, paymentId, bookingData, transc
 };
 
 /**
+ * Posts a manager message to the dashboard API.
+ * Endpoint: POST /restaurants/:restaurantId/other-messages
+ * @param {string} restaurantId
+ * @param {Object|null} messageData - { name, phoneNo, message }
+ */
+const sendManagerMessageToApi = async (restaurantId, messageData) => {
+    const url = `${RESERVATION_API_BASE}/${restaurantId}/other-messages`;
+
+    const now = new Date();
+    const callDate = now.toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' });
+    const callTime = now.toLocaleTimeString('en-GB', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false });
+
+    const payload = {
+        call_date: callDate,
+        call_time: callTime,
+        name: messageData?.name || 'Not Provided',
+        phonenumber: messageData?.phoneNo || 'Not Provided',
+        message: messageData?.message || 'Not Provided'
+    };
+
+    logger.info(`📡 [Manager Message] Sending to API: ${url}`);
+    logger.info(`📦 [Manager Message] Payload: ${JSON.stringify(payload, null, 2)}`);
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            logger.error(`❌ Manager Message API error (${response.status}): ${errorText}`);
+            return { success: false, status: response.status, error: errorText };
+        }
+
+        const result = await response.json();
+        logger.info(`✅ Manager Message API success: ${JSON.stringify(result, null, 2)}`);
+        return { success: true, data: result };
+
+    } catch (apiError) {
+        logger.error(`❌ Manager Message API request failed: ${apiError.message}`);
+        return { success: false, error: apiError.message };
+    }
+};
+
+/**
  * Posts failed/incomplete booking to the failed-bookings API.
  * Missing fields are sent as "Not Provided".
  * @param {string} restaurantId 
@@ -251,16 +298,11 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
             await downloadFile(recordingUrl, localPath);
             savedPath = localPath;
 
-            // Transcribe immediately after download
+            // Transcribe only — intent check runs first before any data extraction
             transcriptText = await transcribeAudio(localPath);
 
-            // Extract structured Booking Data
-            if (transcriptText) {
-                bookingData = await extractBookingData(transcriptText);
-            }
-
         } catch (processErr) {
-            logger.error(`❌ Failed processing (download/transcribe/extract) for ${callSid}: ${processErr.message}`);
+            logger.error(`❌ Failed processing (download/transcribe) for ${callSid}: ${processErr.message}`);
         }
 
         // Get reference to the document
@@ -274,6 +316,51 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
 
         const existingData = callLogDoc.data();
         logger.info(`🏪 Booking Restaurant: ${existingData.restaurantName} (ID: ${existingData.restaurantId})`);
+
+        // =====================================================================
+        // INTENT DETECTION — Classify this call before any reservation logic
+        // =====================================================================
+        if (transcriptText) {
+            const callIntent = await extractCallIntent(transcriptText);
+            logger.info(`🔀 Call intent detected: "${callIntent}" for ${callSid}`);
+
+            if (callIntent === 'manager_message') {
+                logger.info(`📩 Manager message call detected for ${callSid} — routing to manager message flow`);
+
+                // Extract name, phone, and message from the transcript
+                const messageData = await extractManagerMessageData(transcriptText);
+
+                // Persist to Firebase with manager_message type
+                await callLogRef.update({
+                    callType: 'manager_message',
+                    bookingStatus: 'manager_message',
+                    recordingUrl,
+                    localFilePath: savedPath,
+                    transcription: transcriptText,
+                    managerMessage: messageData || { name: null, phoneNo: null, message: null },
+                    duration,
+                    status: 'completed',
+                    updatedAt: new Date()
+                });
+                logger.info(`✅ CallLog updated as manager_message for ${callSid}`);
+
+                // Push to dashboard API
+                await sendManagerMessageToApi(existingData.restaurantId, messageData);
+
+                const updatedDoc = await callLogRef.get();
+                return updatedDoc.data();
+            }
+        }
+        // =====================================================================
+
+        // RESERVATION PATH: Extract booking data only now (intent confirmed as reservation/unknown)
+        try {
+            if (transcriptText) {
+                bookingData = await extractBookingData(transcriptText);
+            }
+        } catch (extractErr) {
+            logger.error(`❌ Failed to extract booking data for ${callSid}: ${extractErr.message}`);
+        }
 
         // Fetch restaurant details for deposit and notification email
         let depositAmount = 0;

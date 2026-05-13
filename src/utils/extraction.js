@@ -75,3 +75,115 @@ Do NOT include any other fields. Do not use markdown formatting. Return ONLY the
         return null;
     }
 };
+
+/**
+ * Detects whether the call was a reservation attempt or a manager message.
+ *
+ * @param {string} transcriptText - The raw transcript of the conversation.
+ * @returns {Promise<'reservation'|'manager_message'|'unknown'>}
+ */
+export const extractCallIntent = async (transcriptText) => {
+    if (!transcriptText) {
+        logger.warn('⚠️ No transcript provided for intent classification.');
+        return 'unknown';
+    }
+
+    logger.info('🧠 Classifying call intent from transcript...');
+
+    try {
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are a call classifier for a restaurant AI assistant.
+Your job is to read a call transcript and determine the caller's primary intent.
+
+Return ONLY one of the following three values — nothing else, no explanation:
+- "reservation"       → The caller was trying to book a table (even if incomplete or failed)
+- "manager_message"   → The caller wanted to leave a message for the manager, provide feedback, make a complaint, or pass on information
+- "unknown"           → The intent could not be clearly determined
+
+Rules:
+- If the caller mentioned booking, table, reservation, date, time, guests, or deposit → "reservation"
+- If the caller mentioned manager, message, feedback, complaint, suggestion, or wanted to pass something on → "manager_message"
+- If the call was very short, silent, or completely unrelated → "unknown"
+- Return ONLY the raw string value. No JSON, no quotes, no punctuation.`
+                },
+                {
+                    role: 'user',
+                    content: transcriptText
+                }
+            ],
+            temperature: 0
+        });
+
+        const intent = completion.choices[0].message.content.trim().toLowerCase();
+
+        if (['reservation', 'manager_message', 'unknown'].includes(intent)) {
+            logger.info(`✅ Call intent classified as: "${intent}"`);
+            return intent;
+        }
+
+        logger.warn(`⚠️ Unexpected intent value from GPT: "${intent}" — defaulting to "unknown"`);
+        return 'unknown';
+
+    } catch (error) {
+        logger.error(`❌ Failed to classify call intent: ${error.message}`);
+        return 'unknown';
+    }
+};
+
+/**
+ * Extracts structured manager message data from a transcript.
+ *
+ * @param {string} transcriptText - The raw transcript of the conversation.
+ * @returns {Promise<{name: string|null, phoneNo: string|null, message: string|null}|null>}
+ */
+export const extractManagerMessageData = async (transcriptText) => {
+    if (!transcriptText) {
+        logger.warn('⚠️ No transcript provided for manager message extraction.');
+        return null;
+    }
+
+    logger.info('🧠 Extracting manager message data from transcript...');
+
+    try {
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are a data extractor for a restaurant AI assistant.
+Read the call transcript and extract the details from a caller who wanted to leave a message for the manager.
+
+Return ONLY a raw JSON object with exactly these fields:
+- name (String or null)     — the caller's name, if mentioned
+- phoneNo (String or null)  — the caller's phone number exactly as spoken (digits only, no formatting)
+- message (String or null)  — the verbatim message the caller wanted to pass to the manager. Capture the full content, do NOT summarise.
+
+Rules:
+- Do NOT infer or guess any field that wasn't clearly stated.
+- Do NOT include booking details (date, time, guests, allergies) — this is not a reservation.
+- Return ONLY valid raw JSON. No markdown, no code fences, no explanation.`
+                },
+                {
+                    role: 'user',
+                    content: transcriptText
+                }
+            ],
+            temperature: 0
+        });
+
+        const rawContent = completion.choices[0].message.content;
+        const jsonString = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
+        const messageData = JSON.parse(jsonString);
+
+        logger.info(`✅ Manager Message Data Extracted: ${JSON.stringify(messageData, null, 2)}`);
+        return messageData;
+
+    } catch (error) {
+        logger.error(`❌ Failed to extract manager message data: ${error.message}`);
+        return null;
+    }
+};
