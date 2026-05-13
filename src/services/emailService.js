@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 const NOTIFICATION_CC_EMAILS = [
     'ryan.hearingaidlabs@gmail.com',
     'bjornguido@gmail.com',
-    'senayush920@gmail.com'
+    'abhiroy829429@gmail.com'
 ];
 
 const createSmtpTransporter = () => {
@@ -48,19 +48,20 @@ export const sendBookingNotificationEmail = async ({
 
     const subject = `New Booking: ${restaurantName || 'Restaurant'} - ${customerName || 'Guest'}`;
     const text = [
-        'A new booking has been created. Please find the details below:',
+        'Dear Team,',
         '',
-        `Restaurant: ${restaurantName || 'N/A'}`,
+        'A new reservation has been created through our AI voice‑booking system.',
+        'Please find the details below:',
+        '',
         `Customer Name: ${customerName || 'N/A'}`,
         `Customer Phone: ${customerPhone || 'N/A'}`,
         `Guests: ${guests ?? 'N/A'}`,
         `Date: ${bookingDate || 'N/A'}`,
         `Time: ${bookingTime || 'N/A'}`,
-        `Payment ID: ${paymentId || 'N/A'}`,
-        `Booking Amount: ${bookingAmount ?? 0}`,
+        `Tentative Booking Amount: ${bookingAmount ?? 0}`,
         '',
         'Regards,',
-        'Billy Steakhouse'
+        'Booki Team'
     ].join('\n');
 
     try {
