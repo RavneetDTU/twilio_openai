@@ -5,7 +5,7 @@ export const billyPersona = {
     id: 'billy',
     name: "Billy's Steakhouse",
     // Configuration for OpenAI
-    model: 'gpt-realtime-mini', // Supports transcription
+    model: 'gpt-realtime-2', // Supports transcription
     voice: 'marin', // male
     temperature: 0.8,
     // The System Prompt (dynamically generated)

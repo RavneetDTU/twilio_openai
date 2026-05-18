@@ -5,9 +5,9 @@ export const ryanPersona = {
     id: 'ryan',
     name: "Ryan's Steakhouse",
     // Configuration for OpenAI
-    model: 'gpt-realtime-mini', // Supports transcription
+    model: 'gpt-realtime-2', // Supports transcription
     voice: 'marin', // female
-    temperature: 0.8,
+    // temperature: 0.8,
     // The System Prompt (dynamically generated)
     get instructions() {
         return getRyansPrompt();
