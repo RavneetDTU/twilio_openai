@@ -7,7 +7,12 @@
         "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg",
-        "RestaurantEmail": "ravneet.dtu@gmail.com"
+        "RestaurantEmail": "ravneet.dtu@gmail.com",
+        "totalCapacity": 15,
+        "otherBookingsByDate": {
+          "2026-05-20": 5,
+          "2026-05-22": 4
+        }
       },
       "operatingHours": {
         "Monday": {
@@ -105,7 +110,9 @@
         "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg",
-        "RestaurantEmail": "ravneet.dtu@gmail.com"
+        "RestaurantEmail": "ravneet.dtu@gmail.com",
+        "totalCapacity": 20,
+        "otherBookingsByDate": {}
       },
       "operatingHours": {
         "Monday": {
@@ -203,7 +210,9 @@
         "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg",
-        "RestaurantEmail": "ravneet.dtu@gmail.com"
+        "RestaurantEmail": "ravneet.dtu@gmail.com",
+        "totalCapacity": 20,
+        "otherBookingsByDate": {}
       },
       "operatingHours": {
         "Monday": {
@@ -301,7 +310,9 @@
         "depositAmount": 1,
         "currency": "rand",
         "timezone": "Africa/Johannesburg",
-        "RestaurantEmail": "ravneet.dtu@gmail.com"
+        "RestaurantEmail": "ravneet.dtu@gmail.com",
+        "totalCapacity": 20,
+        "otherBookingsByDate": {}
       },
       "operatingHours": {
         "Monday": {
