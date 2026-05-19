@@ -7,7 +7,7 @@ export const bjornPersona = {
     id: 'bjorn',
     name: "Bjorn's Steakhouse",
     // Configuration for OpenAI
-    model: 'gpt-realtime-mini',
+    model: 'gpt-realtime-2',  
     voice: 'marin', // female
     // speed : '1.15',
     temperature: 0.8,
