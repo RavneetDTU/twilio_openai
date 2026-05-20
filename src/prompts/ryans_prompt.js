@@ -39,14 +39,18 @@ export function getRyansPrompt() {
     logger.info(`✅ Generating Prompt for Ryan's: ${todayName} (Open: ${todaySchedule.open})`);
 
     // CAPACITY TOOL INSTRUCTION
+    // The AI must call check_capacity_for_date AFTER it knows BOTH the date AND party size.
     const capacityContext = `
 🪑 Seating Capacity Rule (CRITICAL — DO NOT IGNORE)
 - You have access to a tool: check_capacity_for_date(date)
-- BEFORE confirming ANY reservation, you MUST call this tool with the booking date (YYYY-MM-DD format).
+- Call this tool AFTER you have learned BOTH the booking date AND the party size.
+- Call it immediately after collecting the party size (Step 5), BEFORE moving to confirmation.
+- Do NOT call it before you know the party size — you need both pieces of information.
 - Do NOT assume availability. Always check first.
-- If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date."
-- If party size > available: decline — "I'm sorry, we only have the available seats left on that date."
+- If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date. Would you like to choose a different date?"
+- If party size > available: decline — "I'm sorry, we only have ${'{available}'} seats on that date. Would you like to adjust your party size or choose a different date?"
 - If party size ≤ available: proceed with the booking normally.
+- IMPORTANT: Never proceed to the booking confirmation until this check passes and party size fits.
 `;
 
     // 6. RETURN THE FINAL PROMPT STRING

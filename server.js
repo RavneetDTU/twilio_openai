@@ -431,13 +431,12 @@ wss.on('connection', (connection, req) => {
 
                             // Re-read config fresh to get latest totalCapacity + otherBookingsByDate
                             const { getAvailableCapacityForDate } = await import('./src/services/capacityService.js');
-                            const { readConfig } = await import('./src/utils/config.js');
-                            const config = readConfig();
+                            const { getRestaurantDetails } = await import('./src/utils/config.js');
 
                             // Map persona id → restaurantId in prompts.json
                             const personaToRestaurantId = { billy: '1', ryan: '2', bjorn: '3', wine_tasting: '4' };
                             const restaurantId = personaToRestaurantId[persona.id] || '1';
-                            const restaurantConfig = config.restaurants.find(r => r.restaurantId === restaurantId);
+                            const restaurantConfig = await getRestaurantDetails(restaurantId);
                             const settings = restaurantConfig?.settings || {};
 
                             const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr);
