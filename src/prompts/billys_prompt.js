@@ -1,9 +1,12 @@
 
+
+
 import { createRequire } from "module";
 import logger from '../utils/logger.js';
 const require = createRequire(import.meta.url);
 
-// Synchronous prompt — capacity is handled via the check_capacity_for_date tool mid-conversation.
+// We export a FUNCTION now, not a constant string.
+// This ensures the bot gets fresh data (time/price) every single call.
 export function getBillysPrompt() {
 
     // 1. READ CONFIG FRESH (Force reload JSON)
@@ -34,19 +37,6 @@ export function getBillysPrompt() {
 - The restaurant is open from ${todaySchedule.open} to ${todaySchedule.close}.
 - If the user asks for a time OUTSIDE these hours, politely decline: "Sorry, we are only open from ${todaySchedule.open} to ${todaySchedule.close} today."
 - Do NOT accept any booking for a time we are closed.
-`;
-
-    // 5b. CAPACITY TOOL INSTRUCTION
-    // Capacity is NOT pre-fetched — the AI calls the check_capacity_for_date tool
-    // AFTER learning the booking date from the caller, so it always checks the right date.
-    const capacityContext = `
-🪑 Seating Capacity Rule (CRITICAL — DO NOT IGNORE)
-- You have access to a tool: check_capacity_for_date(date)
-- BEFORE confirming ANY reservation, you MUST call this tool with the booking date (YYYY-MM-DD format).
-- Do NOT assume availability. Always check first.
-- If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date."
-- If party size > available: decline — "I'm sorry, we only have ${'{available}'} seats left on that date."
-- If party size ≤ available: proceed with the booking normally.
 `;
 
     logger.info(`✅ Generating Prompt for Billy's: ${todayName} (Open: ${todaySchedule.open})`);
@@ -126,8 +116,6 @@ Listen to what the guest needs and route them to the correct flow:
 - MANAGER MESSAGE: Collect the guest's name, phone number, and message — then confirm it will be forwarded.
 
 ${hoursContext}
-
-${capacityContext}
 
 💬 Tone
 Friendly, calm, and professional. Keep responses short and clear.

@@ -1,9 +1,12 @@
 
+
+
 import { createRequire } from "module";
 import logger from '../utils/logger.js';
 const require = createRequire(import.meta.url);
 
-// Synchronous prompt — capacity is handled via the check_capacity_for_date tool mid-conversation.
+// We export a FUNCTION now, not a constant string.
+// This ensures the bot gets fresh data (time/price) every single call.
 export function getRyansPrompt() {
 
     // 1. READ CONFIG FRESH (Force reload JSON)
@@ -37,18 +40,6 @@ export function getRyansPrompt() {
 `;
 
     logger.info(`✅ Generating Prompt for Ryan's: ${todayName} (Open: ${todaySchedule.open})`);
-
-    // CAPACITY TOOL INSTRUCTION
-    const capacityContext = `
-🪑 Seating Capacity Rule (CRITICAL — DO NOT IGNORE)
-- You have access to a tool: check_capacity_for_date(date)
-- BEFORE confirming ANY reservation, you MUST call this tool with the booking date (YYYY-MM-DD format).
-- Do NOT assume availability. Always check first.
-- If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date."
-- If party size > available: decline — "I'm sorry, we only have the available seats left on that date."
-- If party size ≤ available: proceed with the booking normally.
-`;
-
     // 6. RETURN THE FINAL PROMPT STRING
     // We inject the variables we just calculated above.
 
@@ -124,8 +115,6 @@ Listen to what the guest needs and route them to the correct flow:
 - MANAGER MESSAGE: Collect the guest's name, phone number, and message — then confirm it will be forwarded.
 
 ${hoursContext}
-
-${capacityContext}
 
 💬 Tone
 Friendly, calm, and professional. Keep responses short and clear.

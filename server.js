@@ -358,34 +358,18 @@ wss.on('connection', (connection, req) => {
                 session: {
                     type: 'realtime',
                     model: persona.model,
-                    output_modalities: ['audio'],
+                    output_modalities: ['audio',],
                     audio: {
                         input: { format: { type: 'audio/pcmu' }, turn_detection: { type: 'server_vad' } },
                         output: {
-                            format: { type: 'audio/pcmu' },
+                            format: {
+                                type: 'audio/pcmu'
+                            },
                             voice: persona.voice,
                             speed: persona.speed,
                         },
                     },
                     instructions: persona.instructions,
-                    tools: [
-                        {
-                            type: 'function',
-                            name: 'check_capacity_for_date',
-                            description: 'Check how many seats are available at the restaurant on a specific date. Call this BEFORE confirming any reservation.',
-                            parameters: {
-                                type: 'object',
-                                properties: {
-                                    date: {
-                                        type: 'string',
-                                        description: 'The booking date in YYYY-MM-DD format (e.g. "2026-05-22")'
-                                    }
-                                },
-                                required: ['date']
-                            }
-                        }
-                    ],
-                    tool_choice: 'auto',
                 },
             };
             openAiWs.send(JSON.stringify(sessionUpdate));
@@ -417,57 +401,6 @@ wss.on('connection', (connection, req) => {
                 // HANDLE OPENAI ERRORS
                 if (response.type === 'error') {
                     logger.error(`❌ OpenAI Error Event: ${JSON.stringify(response.error, null, 2)}`);
-                }
-
-                // TOOL CALL: check_capacity_for_date
-                // The AI calls this after learning the booking date from the caller.
-                if (response.type === 'response.function_call_arguments.done' &&
-                    response.name === 'check_capacity_for_date') {
-
-                    (async () => {
-                        try {
-                            const args = JSON.parse(response.arguments);
-                            const dateStr = args.date; // e.g. "2026-05-22"
-
-                            // Re-read config fresh to get latest totalCapacity + otherBookingsByDate
-                            const { getAvailableCapacityForDate } = await import('./src/services/capacityService.js');
-                            const { readConfig } = await import('./src/utils/config.js');
-                            const config = readConfig();
-
-                            // Map persona id → restaurantId in prompts.json
-                            const personaToRestaurantId = { billy: '1', ryan: '2', bjorn: '3', wine_tasting: '4' };
-                            const restaurantId = personaToRestaurantId[persona.id] || '1';
-                            const restaurantConfig = config.restaurants.find(r => r.restaurantId === restaurantId);
-                            const settings = restaurantConfig?.settings || {};
-
-                            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr);
-
-                            logger.info(`📊 [Tool] check_capacity_for_date(${dateStr}) → available: ${capacity.available}`);
-
-                            // Send the tool result back to OpenAI so the AI can speak it
-                            openAiWs.send(JSON.stringify({
-                                type: 'conversation.item.create',
-                                item: {
-                                    type: 'function_call_output',
-                                    call_id: response.call_id,
-                                    output: JSON.stringify({
-                                        date: dateStr,
-                                        totalCapacity: capacity.totalCapacity,
-                                        aiBooked: capacity.aiBooked,
-                                        otherSourceBookings: capacity.otherBookings,
-                                        available: capacity.available,
-                                        fullyBooked: capacity.available === 0
-                                    })
-                                }
-                            }));
-
-                            // Tell OpenAI to generate its next response using the tool result
-                            openAiWs.send(JSON.stringify({ type: 'response.create' }));
-
-                        } catch (toolErr) {
-                            logger.error(`❌ [Tool] check_capacity_for_date failed: ${toolErr.message}`);
-                        }
-                    })();
                 }
 
                 // 1. Audio Delta (AI Speaking)
