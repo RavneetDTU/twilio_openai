@@ -1,9 +1,12 @@
 
+
+
 import { createRequire } from "module";
 import logger from '../utils/logger.js';
 const require = createRequire(import.meta.url);
 
-// Synchronous prompt — capacity is handled via the check_capacity_for_date tool mid-conversation.
+// We export a FUNCTION now, not a constant string.
+// This ensures the bot gets fresh data (time/price) every single call.
 export function getRyansPrompt() {
 
     // 1. READ CONFIG FRESH (Force reload JSON)
@@ -37,22 +40,6 @@ export function getRyansPrompt() {
 `;
 
     logger.info(`✅ Generating Prompt for Ryan's: ${todayName} (Open: ${todaySchedule.open})`);
-
-    // CAPACITY TOOL INSTRUCTION
-    // The AI must call check_capacity_for_date AFTER it knows BOTH the date AND party size.
-    const capacityContext = `
-🪑 Seating Capacity Rule (CRITICAL — DO NOT IGNORE)
-- You have access to a tool: check_capacity_for_date(date)
-- Call this tool AFTER you have learned BOTH the booking date AND the party size.
-- Call it immediately after collecting the party size (Step 5), BEFORE moving to confirmation.
-- Do NOT call it before you know the party size — you need both pieces of information.
-- Do NOT assume availability. Always check first.
-- If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date. Would you like to choose a different date?"
-- If party size > available: decline — "I'm sorry, we only have ${'{available}'} seats on that date. Would you like to adjust your party size or choose a different date?"
-- If party size ≤ available: proceed with the booking normally.
-- IMPORTANT: Never proceed to the booking confirmation until this check passes and party size fits.
-`;
-
     // 6. RETURN THE FINAL PROMPT STRING
     // We inject the variables we just calculated above.
 
@@ -128,8 +115,6 @@ Listen to what the guest needs and route them to the correct flow:
 - MANAGER MESSAGE: Collect the guest's name, phone number, and message — then confirm it will be forwarded.
 
 ${hoursContext}
-
-${capacityContext}
 
 💬 Tone
 Friendly, calm, and professional. Keep responses short and clear.

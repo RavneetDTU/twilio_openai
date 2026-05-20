@@ -11,8 +11,8 @@ export const bjornPersona = {
     voice: 'marin', // female
     // speed : '1.15',
     temperature: 0.8,
-    // The System Prompt (dynamically generated — async to support real-time capacity lookup)
-    async getInstructions() {
-        return await getBjornsPrompt();
+    // The System Prompt (dynamically generated)
+    get instructions() {
+        return getBjornsPrompt();
     },
 };
