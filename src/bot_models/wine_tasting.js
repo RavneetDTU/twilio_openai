@@ -8,9 +8,8 @@ export const wineTastingPersona = {
     model: 'gpt-realtime-2', // Supports transcription
     voice: 'marin', // female
     temperature: 0.8,
-    // The System Prompt (dynamically generated — async to support real-time capacity lookup)
-    async getInstructions() {
-        return await getWineTastingPrompt();
+    // The System Prompt (dynamically generated)
+    get instructions() {
+        return getWineTastingPrompt();
     },
 };
-
