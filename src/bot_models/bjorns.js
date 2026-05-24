@@ -11,7 +11,7 @@ export const bjornPersona = {
     voice: 'marin', // female
     // speed : '1.15',
     temperature: 0.8,
-    // The System Prompt (dynamically generated)
+    // The System Prompt (dynamically generated — called fresh on every call)
     get instructions() {
         return getBjornsPrompt();
     },
