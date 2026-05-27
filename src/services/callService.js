@@ -20,8 +20,7 @@ const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
  * Any unknown number defaults to Billy's Steakhouse.
  */
 const RESTAURANT_MAP = {
-    '+27844500010': { id: '3', name: "Ryan's Steakhouse" },
-    '+27765575522': { id: '5', name: "Bjorn's Steakhouse" },
+    '+27765575522': { id: '3', name: "Bjorn's Steakhouse" },
     '+918930276263': { id: '1', name: "Billy's Steakhouse" },
     '+918319377879': { id: '1', name: "Billy's Steakhouse" },
     '+27210073477': { id: '4', name: "Wine Tasting Terrance" },
