@@ -434,7 +434,7 @@ wss.on('connection', (connection, req) => {
                             const { getRestaurantDetails } = await import('./src/utils/config.js');
 
                             // Map persona id → restaurantId in prompts.json
-                            const personaToRestaurantId = { billy: '1', ryan: '2', bjorn: '3', wine_tasting: '4' };
+                            const personaToRestaurantId = { billy: '1', bjorn: '3', wine_tasting: '4' };
                             const restaurantId = personaToRestaurantId[persona.id] || '1';
                             const restaurantConfig = await getRestaurantDetails(restaurantId);
                             const settings = restaurantConfig?.settings || {};
