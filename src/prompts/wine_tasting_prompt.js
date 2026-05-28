@@ -7,27 +7,27 @@ const require = createRequire(import.meta.url);
 // This ensures the bot gets fresh data (time/price) every single call.
 export function getWineTastingPrompt() {
 
-    // 1. READ CONFIG FRESH (Force reload JSON)
-    const jsonPath = "./prompts.json";
-    delete require.cache[require.resolve(jsonPath)];
-    const data = require(jsonPath);
+  // 1. READ CONFIG FRESH (Force reload JSON)
+  const jsonPath = "./prompts.json";
+  delete require.cache[require.resolve(jsonPath)];
+  const data = require(jsonPath);
 
-    // 2. FIND WINE TASTING TERRANCE'S RESTAURANT
-    const wineTastingConfig = data.restaurants.find(r => r.restaurantId === '4');
-    if (!wineTastingConfig) {
-        throw new Error("Wine Tasting Terrance's restaurant configuration not found!");
-    }
+  // 2. FIND WINE TASTING TERRANCE'S RESTAURANT
+  const wineTastingConfig = data.restaurants.find(r => r.restaurantId === '4');
+  if (!wineTastingConfig) {
+    throw new Error("Wine Tasting Terrance's restaurant configuration not found!");
+  }
 
-    // 3. EXTRACT SETTINGS
-    const { depositAmount, currency, timezone } = wineTastingConfig.settings;
-    const allHours = wineTastingConfig.operatingHours;
+  // 3. EXTRACT SETTINGS
+  const { depositAmount, currency, timezone } = wineTastingConfig.settings;
+  const allHours = wineTastingConfig.operatingHours;
 
-    // 4. CALCULATE "TODAY" (Dynamic Time)
-    const todayName = new Date().toLocaleDateString('en-ZA', { weekday: 'long', timeZone: timezone });
-    const todaySchedule = allHours[todayName] || { open: "Closed", close: "Closed" };
+  // 4. CALCULATE "TODAY" (Dynamic Time)
+  const todayName = new Date().toLocaleDateString('en-ZA', { weekday: 'long', timeZone: timezone });
+  const todaySchedule = allHours[todayName] || { open: "Closed", close: "Closed" };
 
-    // 5. GENERATE TIME CONTEXT STRING
-    const hoursContext = `
+  // 5. GENERATE TIME CONTEXT STRING
+  const hoursContext = `
 🕒 Operating Hours Context
 - Today is ${todayName}.
 - The restaurant is open from ${todaySchedule.open} to ${todaySchedule.close}.
@@ -35,18 +35,18 @@ export function getWineTastingPrompt() {
 - Do NOT accept any booking for a time we are closed.
 `;
 
-    logger.info(`✅ Generating Prompt for Wine Tasting Terrance: ${todayName} (Open: ${todaySchedule.open})`);
+  logger.info(`✅ Generating Prompt for Wine Tasting Terrance: ${todayName} (Open: ${todaySchedule.open})`);
 
-    // 6. BUILD DYNAMIC QUESTION FLOW
-    const flowQuestions = [...wineTastingConfig.questionFlow].sort((a, b) => a.order - b.order);
+  // 6. BUILD DYNAMIC QUESTION FLOW
+  const flowQuestions = [...wineTastingConfig.questionFlow].sort((a, b) => a.order - b.order);
 
-    let dynamicFlowText = "";
-    flowQuestions.forEach((q) => {
-        const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
-        dynamicFlowText += `${q.order}. ${stepTitle}\n"${q.botMessage}"`;
+  let dynamicFlowText = "";
+  flowQuestions.forEach((q) => {
+    const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
+    dynamicFlowText += `${q.order}. ${stepTitle}\n"${q.botMessage}"`;
 
-        if (q.id === 'phone') {
-            dynamicFlowText += `\n\n📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
+    if (q.id === 'phone') {
+      dynamicFlowText += `\n\n📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
 
    [INTERNAL INSTRUCTION: DO NOT AUTO-CORRECT]
 
@@ -86,20 +86,20 @@ export function getWineTastingPrompt() {
    PHASE 3: CONFIRMATION
    - If User says "Yes": Move to Step 4.
    - If User says "No": Apologize, clear the data, and ask again.\n`;
-        } else if (q.id === 'dateTime') {
-            dynamicFlowText += `\n(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).\n`;
-        } else if (q.instructions) {
-             dynamicFlowText += ` (${q.instructions})\n`;
-        } else {
-             dynamicFlowText += `\n`;
-        }
+    } else if (q.id === 'dateTime') {
+      dynamicFlowText += `\n(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).\n`;
+    } else if (q.instructions) {
+      dynamicFlowText += ` (${q.instructions})\n`;
+    } else {
+      dynamicFlowText += `\n`;
+    }
 
-        dynamicFlowText += "\n";
-    });
+    dynamicFlowText += "\n";
+  });
 
-    console.log(`✅ Generating Prompt for Wine Tasting Terrance: ${todayName} (Open: ${todaySchedule.open})`);
+  console.log(`✅ Generating Prompt for Wine Tasting Terrance: ${todayName} (Open: ${todaySchedule.open})`);
 
-    return `
+  return `
 You are a warm, professional AI assistant for Wine Tasting Terrance, a premium wine bar and tasting lounge specializing in curated wine experiences.
 Your job is to assist guests — either with table reservations or by passing messages to the manager.
 
