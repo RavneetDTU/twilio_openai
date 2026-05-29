@@ -22,9 +22,10 @@ const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 const RESTAURANT_MAP = {
     '+27765575522': { id: '3', name: "Bjorn's Steakhouse" },
     '+918930276263': { id: '1', name: "Billy's Steakhouse" },
-    '+918319377879': { id: '1', name: "Billy's Steakhouse" },
+    '+918319377879': { id: '5', name: "La Retha" },
     '+27210073477': { id: '4', name: "Wine Tasting Terrance" },
-}; 
+    '+270647211953': { id: '5', name: "La Retha" },
+};
 
 const DEFAULT_RESTAURANT = { id: '1', name: "Billy's Steakhouse" };
 

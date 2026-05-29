@@ -303,6 +303,106 @@
           "instructions": null
         }
       ]
+    },
+    {
+      "restaurantId": "5",
+      "name": "La Retha",
+      "settings": {
+        "depositAmount": 1,
+        "currency": "rand",
+        "timezone": "Africa/Johannesburg",
+        "RestaurantEmail": "reservations@lapetitemaisonrestaurant.co.za",
+        "totalCapacity": 20,
+        "otherBookingsByDate": {}
+      },
+      "operatingHours": {
+        "Monday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Tuesday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Wednesday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Thursday": {
+          "open": "12:00 PM",
+          "close": "10:00 PM"
+        },
+        "Friday": {
+          "open": "12:00 PM",
+          "close": "11:00 PM"
+        },
+        "Saturday": {
+          "open": "11:00 AM",
+          "close": "11:00 PM"
+        },
+        "Sunday": {
+          "open": "11:00 AM",
+          "close": "9:00 PM"
+        }
+      },
+      "questionFlow": [
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010001",
+          "title": "Greeting",
+          "order": 1,
+          "botMessage": "Hii their! Welcome to billy steak house — I can assist you with table reservations or messages for the manager.",
+          "isRequired": true,
+          "instructions": null
+        },
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010002",
+          "title": "Name Capture",
+          "order": 2,
+          "botMessage": "May I have the name for the reservation?",
+          "isRequired": true,
+          "instructions": "Skip if already given."
+        },
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010003",
+          "title": "Phone Capture",
+          "order": 3,
+          "botMessage": "What's the best phone number to confirm the booking?",
+          "isRequired": true,
+          "instructions": "Use STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode). Minimum 9 digits. Literal read-back required."
+        },
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010004",
+          "title": "Date & Time",
+          "order": 4,
+          "botMessage": "What date and time would you prefer?",
+          "isRequired": true,
+          "instructions": "Check against operating hours."
+        },
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010005",
+          "title": "Party Size",
+          "order": 5,
+          "botMessage": "How many guests will be dining?",
+          "isRequired": true,
+          "instructions": null
+        },
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010006",
+          "title": "Allergies",
+          "order": 6,
+          "botMessage": "Does anyone in the party have any allergies we should note?",
+          "isRequired": true,
+          "instructions": null
+        },
+        {
+          "id": "q_e5f6a7b8-c9d0-4890-efab-234567010007",
+          "title": "Confirmation",
+          "order": 7,
+          "botMessage": "Just to confirm: a table under [name] for [number] guests on [date] at [time]. Contact: [phone]. Allergies: [details or 'none noted']. Is that correct?",
+          "isRequired": true,
+          "instructions": null
+        }
+      ]
     }
   ]
 }
