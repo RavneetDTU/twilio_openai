@@ -70,7 +70,7 @@ app.all('/incoming-call', async (req, res) => {
     const callerNumber = req.body.From || "Unknown";
     const callSid = req.body.CallSid;
     const to = req.body.To || "Unknown";
-     
+
     logger.info('#---------------------NEXT CALL LOG--------------------------------#')
     logger.info(`📞 Incoming call from: ${callerNumber} to ${to}`);
     logger.info(`🆔 CallSid: ${callSid}`);
@@ -260,6 +260,26 @@ wss.on('connection', (connection, req) => {
     let markQueue = [];
     let responseStartTimestampTwilio = null;
 
+    // VAD & turn-detection state
+    let greetingCompleted = false;
+    let twilioMediaFrames = 0;
+    let twilioMediaFramesAfterGreeting = 0;
+    let openAiAudioAppendFrames = 0;
+    let lastTwilioMediaLogAt = 0;
+    let lastOpenAiEventType = null;
+    let lastOpenAiEventAt = null;
+    let callerSpeechActive = false;
+    let callerTurnCommitted = false;
+    let callerTurnFallbackTimer = null;
+    let callerTurnMaxTimer = null;
+    let waitingForCallerAfterBot = false;
+    let callerFramesSinceLastBot = 0;
+    let noVadFallbackTimer = null;
+    let localSpeechActive = false;
+    let localSpeechStartedAt = null;
+    let localLastVoiceAt = null;
+    let localPeakAudioLevel = 0;
+
     // Call lifecycle state
     let sessionCallSid = null;      // Twilio CallSid — captured on 'start' event
     let bookingCompleted = false;   // Guard: prevents double-hangup if phrase appears twice
@@ -308,6 +328,203 @@ wss.on('connection', (connection, req) => {
         }
     };
 
+    // --- HELPER: Summarize OpenAI events for logging ---
+    const summarizeOpenAiEvent = (response) => {
+        const summary = {
+            type: response.type,
+            event_id: response.event_id,
+            item_id: response.item_id,
+            response_id: response.response?.id || response.response_id,
+            status: response.response?.status || response.status,
+        };
+
+        if (response.type === 'session.updated') {
+            summary.session_id = response.session?.id;
+            summary.model = response.session?.model;
+            summary.turn_detection = response.session?.audio?.input?.turn_detection?.type || null;
+            summary.input_transcription = response.session?.audio?.input?.transcription?.model || null;
+        }
+
+        if (response.type === 'input_audio_buffer.speech_started' || response.type === 'input_audio_buffer.speech_stopped') {
+            summary.audio_start_ms = response.audio_start_ms;
+            summary.audio_end_ms = response.audio_end_ms;
+        }
+
+        if (response.type === 'input_audio_buffer.committed') {
+            summary.previous_item_id = response.previous_item_id;
+        }
+
+        if (response.type === 'response.done') {
+            summary.status_details = response.response?.status_details || null;
+            summary.usage = response.response?.usage || null;
+        }
+
+        return JSON.stringify(summary);
+    };
+
+    const shouldLogOpenAiEvent = (type) => {
+        if (type === 'response.output_audio.delta' || type === 'response.output_audio_transcript.delta') {
+            return false;
+        }
+
+        return [
+            'session.created',
+            'session.updated',
+            'error',
+            'input_audio_buffer.speech_started',
+            'input_audio_buffer.speech_stopped',
+            'input_audio_buffer.committed',
+            'conversation.item.input_audio_transcription.delta',
+            'conversation.item.input_audio_transcription.completed',
+            'conversation.item.input_audio_transcription.failed',
+            'response.created',
+            'response.done',
+            'response.output_audio.done',
+            'response.output_audio_transcript.done',
+            'response.function_call_arguments.done',
+            'rate_limits.updated'
+        ].includes(type);
+    };
+
+    // --- LOCAL VAD: decode µ-law sample to linear PCM ---
+    const decodeMuLawSample = (byte) => {
+        const muLaw = ~byte & 0xff;
+        const sign = muLaw & 0x80;
+        const exponent = (muLaw >> 4) & 0x07;
+        const mantissa = muLaw & 0x0f;
+        let sample = ((mantissa << 3) + 0x84) << exponent;
+        sample -= 0x84;
+        return sign ? -sample : sample;
+    };
+
+    const getPcmuAudioLevel = (payload) => {
+        const buffer = Buffer.from(payload, 'base64');
+        if (!buffer.length) return 0;
+
+        let sumSquares = 0;
+        for (const byte of buffer) {
+            const sample = decodeMuLawSample(byte);
+            sumSquares += sample * sample;
+        }
+
+        return Math.sqrt(sumSquares / buffer.length) / 32768;
+    };
+
+    const resetLocalTurnAudio = () => {
+        localSpeechActive = false;
+        localSpeechStartedAt = null;
+        localLastVoiceAt = null;
+        localPeakAudioLevel = 0;
+    };
+
+    const clearCallerTurnFallback = () => {
+        if (callerTurnFallbackTimer) {
+            clearTimeout(callerTurnFallbackTimer);
+            callerTurnFallbackTimer = null;
+        }
+        if (callerTurnMaxTimer) {
+            clearTimeout(callerTurnMaxTimer);
+            callerTurnMaxTimer = null;
+        }
+        if (noVadFallbackTimer) {
+            clearTimeout(noVadFallbackTimer);
+            noVadFallbackTimer = null;
+        }
+    };
+
+    const forceCommitCallerTurn = (reason, options = {}) => {
+        const { allowWithoutSpeechStarted = false } = options;
+
+        if (!openAiWs || openAiWs.readyState !== WebSocket.OPEN || callerTurnCommitted) {
+            return;
+        }
+
+        if (!callerSpeechActive && !allowWithoutSpeechStarted) {
+            return;
+        }
+
+        callerTurnCommitted = true;
+        callerSpeechActive = false;
+        waitingForCallerAfterBot = false;
+        resetLocalTurnAudio();
+        clearCallerTurnFallback();
+
+        logger.warn(`OpenAI VAD did not finish caller turn; forcing input_audio_buffer.commit + response.create. callSid=${sessionCallSid || 'unknown'}, reason=${reason}, framesAfterGreeting=${twilioMediaFramesAfterGreeting}, framesSinceLastBot=${callerFramesSinceLastBot}, lastTwilioTs=${latestMediaTimestamp}`);
+
+        try {
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+        } catch (commitErr) {
+            logger.error(`Failed to force caller turn commit. callSid=${sessionCallSid || 'unknown'}, error=${commitErr.message}`);
+        }
+    };
+
+    const scheduleCallerTurnFallback = () => {
+        if (!callerSpeechActive || callerTurnCommitted) return;
+
+        // Reset the sliding window timer every time a new media frame arrives.
+        // 800ms after the last frame following speech_started = natural end of turn.
+        if (callerTurnFallbackTimer) clearTimeout(callerTurnFallbackTimer);
+        callerTurnFallbackTimer = setTimeout(() => forceCommitCallerTurn('no_media_after_speech_started_800ms'), 800);
+
+        if (!callerTurnMaxTimer) {
+            callerTurnMaxTimer = setTimeout(() => forceCommitCallerTurn('max_speech_turn_12000ms'), 12000);
+        }
+    };
+
+    const scheduleNoVadFallback = () => {
+        if (!waitingForCallerAfterBot || callerSpeechActive || callerTurnCommitted || noVadFallbackTimer) {
+            return;
+        }
+
+        // 4000ms: if bot finished speaking and user audio is flowing but OpenAI
+        // never fires speech_started, commit what we have and get a response.
+        noVadFallbackTimer = setTimeout(() => {
+            if (waitingForCallerAfterBot && !callerSpeechActive && !callerTurnCommitted && callerFramesSinceLastBot >= 25) {
+                forceCommitCallerTurn('caller_audio_after_bot_but_no_speech_started_4000ms', {
+                    allowWithoutSpeechStarted: true
+                });
+            }
+        }, 4000);
+    };
+
+    const updateLocalTurnDetection = (payload) => {
+        if (!waitingForCallerAfterBot || callerTurnCommitted) return;
+
+        const timestampMs = Number(latestMediaTimestamp) || 0;
+        const audioLevel = getPcmuAudioLevel(payload);
+        localPeakAudioLevel = Math.max(localPeakAudioLevel, audioLevel);
+
+        const voiceThreshold = 0.018;
+        const silenceAfterSpeechMs = 1200;
+        const maxTurnMs = 12000;
+
+        if (audioLevel >= voiceThreshold) {
+            localLastVoiceAt = timestampMs;
+
+            if (!localSpeechActive) {
+                localSpeechActive = true;
+                localSpeechStartedAt = timestampMs;
+                logger.info(`Local VAD detected caller speech. callSid=${sessionCallSid || 'unknown'}, audioLevel=${audioLevel.toFixed(4)}, twilioTs=${latestMediaTimestamp}`);
+            }
+        }
+
+        if (!localSpeechActive) return;
+
+        const silenceMs = timestampMs - (localLastVoiceAt || timestampMs);
+        const turnMs = timestampMs - (localSpeechStartedAt || timestampMs);
+
+        if (turnMs >= maxTurnMs) {
+            forceCommitCallerTurn('local_vad_max_turn_12000ms', { allowWithoutSpeechStarted: true });
+            return;
+        }
+
+        if (turnMs >= 600 && silenceMs >= silenceAfterSpeechMs) {
+            logger.info(`Local VAD detected end of caller turn. callSid=${sessionCallSid || 'unknown'}, silenceMs=${silenceMs}, turnMs=${turnMs}, peakLevel=${localPeakAudioLevel.toFixed(4)}`);
+            forceCommitCallerTurn('local_vad_silence_after_speech_1200ms', { allowWithoutSpeechStarted: true });
+        }
+    };
+
     // --- TWILIO MESSAGE LISTENER ---
     connection.on('message', (message) => {
         const data = JSON.parse(message);
@@ -331,11 +548,35 @@ wss.on('connection', (connection, req) => {
         // B. Handle Media (Audio from user)
         if (data.event === 'media') {
             latestMediaTimestamp = data.media.timestamp;
+            twilioMediaFrames += 1;
+
             if (openAiWs && openAiWs.readyState === WebSocket.OPEN) {
-                openAiWs.send(JSON.stringify({
-                    type: 'input_audio_buffer.append',
-                    audio: data.media.payload
-                }));
+                try {
+                    openAiWs.send(JSON.stringify({
+                        type: 'input_audio_buffer.append',
+                        audio: data.media.payload
+                    }));
+                    openAiAudioAppendFrames += 1;
+                } catch (sendErr) {
+                    logger.error(`Realtime audio append failed for ${sessionCallSid || 'unknown call'}: ${sendErr.message}`);
+                }
+            } else if (twilioMediaFrames <= 5 || twilioMediaFrames % 250 === 0) {
+                logger.warn(`Twilio media received but OpenAI WS is not open. callSid=${sessionCallSid || 'unknown'}, openAiState=${openAiWs?.readyState ?? 'not_created'}, frames=${twilioMediaFrames}`);
+            }
+
+            if (greetingCompleted) {
+                twilioMediaFramesAfterGreeting += 1;
+                scheduleCallerTurnFallback();
+                if (waitingForCallerAfterBot && !callerSpeechActive && !callerTurnCommitted) {
+                    callerFramesSinceLastBot += 1;
+                    scheduleNoVadFallback();
+                }
+                updateLocalTurnDetection(data.media.payload);
+                const ts = Number(latestMediaTimestamp) || 0;
+                if (twilioMediaFramesAfterGreeting <= 5 || ts - lastTwilioMediaLogAt >= 5000) {
+                    lastTwilioMediaLogAt = ts;
+                    logger.info(`After greeting: Twilio media frame received and forwarded. callSid=${sessionCallSid || 'unknown'}, afterGreetingFrames=${twilioMediaFramesAfterGreeting}, totalForwarded=${openAiAudioAppendFrames}, twilioTs=${latestMediaTimestamp}, openAiState=${openAiWs?.readyState}`);
+                }
             }
         }
 
@@ -353,6 +594,10 @@ wss.on('connection', (connection, req) => {
         );
 
         const initializeSession = () => {
+            // Per official OpenAI Realtime API docs:
+            // - semantic_vad: model decides end-of-turn by meaning, not silence — reliable on telephony
+            // - noise_reduction far_field: cleans telephony/Twilio line noise before VAD
+            // - transcription: separate gpt-4o-transcribe model for accurate caller text
             const sessionUpdate = {
                 type: 'session.update',
                 session: {
@@ -360,7 +605,17 @@ wss.on('connection', (connection, req) => {
                     model: persona.model,
                     output_modalities: ['audio'],
                     audio: {
-                        input: { format: { type: 'audio/pcmu' }, turn_detection: { type: 'server_vad' } },
+                        input: {
+                            format: { type: 'audio/pcmu' },
+                            transcription: { model: 'gpt-4o-transcribe' },
+                            noise_reduction: { type: 'far_field' },
+                            turn_detection: {
+                                type: 'semantic_vad',
+                                eagerness: 'high',
+                                create_response: true,
+                                interrupt_response: true
+                            }
+                        },
                         output: {
                             format: { type: 'audio/pcmu' },
                             voice: persona.voice,
@@ -388,9 +643,11 @@ wss.on('connection', (connection, req) => {
                     tool_choice: 'auto',
                 },
             };
+            logger.info(`Sending session.update to OpenAI. callSid=${sessionCallSid || 'unknown'}, persona=${persona.name}, model=${persona.model}, voice=${persona.voice}, inputFormat=audio/pcmu, turnDetection=semantic_vad`);
             openAiWs.send(JSON.stringify(sessionUpdate));
 
-            // Optional: Force a greeting
+            // Trigger greeting
+            logger.info(`Sending greeting trigger to OpenAI. callSid=${sessionCallSid || 'unknown'}`);
             openAiWs.send(JSON.stringify({
                 type: 'conversation.item.create',
                 item: {
@@ -400,6 +657,7 @@ wss.on('connection', (connection, req) => {
                 }
             }));
             openAiWs.send(JSON.stringify({ type: 'response.create' }));
+            logger.info(`Initial response.create sent. callSid=${sessionCallSid || 'unknown'}`);
         };
 
         openAiWs.on('open', () => {
@@ -410,9 +668,12 @@ wss.on('connection', (connection, req) => {
         openAiWs.on('message', (data) => {
             try {
                 const response = JSON.parse(data);
+                lastOpenAiEventType = response.type;
+                lastOpenAiEventAt = new Date();
 
-                // DEBUG: Print EVERY event type we get
-                // console.log("Received event:", response.type);
+                if (shouldLogOpenAiEvent(response.type)) {
+                    logger.info(`OpenAI event: ${summarizeOpenAiEvent(response)}`);
+                }
 
                 // HANDLE OPENAI ERRORS
                 if (response.type === 'error') {
@@ -434,7 +695,7 @@ wss.on('connection', (connection, req) => {
                             const { getRestaurantDetails } = await import('./src/utils/config.js');
 
                             // Map persona id → restaurantId in prompts.json
-                            const personaToRestaurantId = { billy: '1', bjorn: '3', wine_tasting: '4' };
+                            const personaToRestaurantId = { billy: '1', bjorn: '3', wine_tasting: '4', la_retha: '5' };
                             const restaurantId = personaToRestaurantId[persona.id] || '1';
                             const restaurantConfig = await getRestaurantDetails(restaurantId);
                             const settings = restaurantConfig?.settings || {};
@@ -488,20 +749,69 @@ wss.on('connection', (connection, req) => {
 
                 // 2. Speech Started (User Interrupting)
                 if (response.type === 'input_audio_buffer.speech_started') {
+                    callerSpeechActive = true;
+                    callerTurnCommitted = false;
+                    waitingForCallerAfterBot = false;
+                    callerFramesSinceLastBot = 0;
+                    resetLocalTurnAudio();
+                    scheduleCallerTurnFallback();
+                    logger.info(`OpenAI detected caller speech. callSid=${sessionCallSid || 'unknown'}, afterGreeting=${greetingCompleted}, twilioTs=${latestMediaTimestamp}, framesAfterGreeting=${twilioMediaFramesAfterGreeting}`);
                     handleSpeechStartedEvent();
                 }
 
-                // 3. USER TRANSCRIPTION (What YOU said)
-                if (response.type === 'conversation.item.input_audio_transcription.delta') {
-                    const userText = response.transcript.trim();
-                    // console.log(`👤 USER: ${userText}`);
+                if (response.type === 'input_audio_buffer.speech_stopped') {
+                    logger.info(`OpenAI detected caller speech stopped. callSid=${sessionCallSid || 'unknown'}, twilioTs=${latestMediaTimestamp}, framesAfterGreeting=${twilioMediaFramesAfterGreeting}`);
                 }
-                // console.log(response);
+
+                if (response.type === 'input_audio_buffer.committed') {
+                    callerSpeechActive = false;
+                    callerTurnCommitted = true;
+                    waitingForCallerAfterBot = false;
+                    callerFramesSinceLastBot = 0;
+                    resetLocalTurnAudio();
+                    clearCallerTurnFallback();
+                    logger.info(`OpenAI committed caller audio buffer. callSid=${sessionCallSid || 'unknown'}, item_id=${response.item_id || '[none]'}`);
+                }
+
+                if (response.type === 'response.created') {
+                    callerSpeechActive = false;
+                    callerTurnCommitted = false;
+                    waitingForCallerAfterBot = false;
+                    callerFramesSinceLastBot = 0;
+                    resetLocalTurnAudio();
+                    clearCallerTurnFallback();
+                }
+
+                // 3. USER TRANSCRIPTION (What YOU said)
+                // Per docs: delta events use response.delta, completed events use response.transcript
+                if (response.type === 'conversation.item.input_audio_transcription.delta') {
+                    const userText = (response.delta || '').trim();
+                    if (userText) logger.info(`USER transcript delta: ${userText}`);
+                }
+
+                if (response.type === 'conversation.item.input_audio_transcription.completed') {
+                    const userText = (response.transcript || '').trim();
+                    logger.info(`USER transcript completed: ${userText || '[empty]'}`);
+                }
+
+                if (response.type === 'conversation.item.input_audio_transcription.failed') {
+                    logger.error(`USER transcription failed: ${JSON.stringify(response.error || response, null, 2)}`);
+                }
 
                 // 4. BOT RESPONSE (What AI said) + Auto-Hangup on Closing Phrase
                 if (response.type === 'response.output_audio_transcript.done') {
                     const botText = response.transcript.trim();
                     logger.info(`🤖 BOT: ${botText}`);
+                    if (!greetingCompleted) {
+                        greetingCompleted = true;
+                        logger.info(`Greeting completed. Watching caller audio/OpenAI VAD now. callSid=${sessionCallSid || 'unknown'}, totalTwilioFrames=${twilioMediaFrames}, totalForwarded=${openAiAudioAppendFrames}`);
+                    }
+                    waitingForCallerAfterBot = true;
+                    callerFramesSinceLastBot = 0;
+                    callerTurnCommitted = false;
+                    resetLocalTurnAudio();
+                    clearCallerTurnFallback();
+                    logger.info(`Bot finished speaking. Waiting for next caller turn. callSid=${sessionCallSid || 'unknown'}, lastBot="${botText.substring(0, 80)}"`);
 
                     // --- AUTO-HANGUP: End call after bot delivers closing message ---
                     // Reservation close:       "...we look forward to welcoming you."
@@ -516,7 +826,7 @@ wss.on('connection', (connection, req) => {
 
                     if (isClosingMessage && !bookingCompleted && sessionCallSid) {
                         bookingCompleted = true;
-                        logger.info(`✅ Closing phrase detected: "${botText.substring(0, 60)}..." — scheduling call termination in 10s...`);
+                        logger.info(`✅ Closing phrase detected: "${botText.substring(0, 60)}..." — scheduling call termination in 8s...`);
 
                         setTimeout(async () => {
                             try {
@@ -534,13 +844,14 @@ wss.on('connection', (connection, req) => {
             }
         });
 
-        openAiWs.on('close', () => logger.info('OpenAI Closed'));
+        openAiWs.on('close', (code, reason) => logger.info(`OpenAI Closed. callSid=${sessionCallSid || 'unknown'}, code=${code}, reason=${reason?.toString() || '[none]'}, lastEvent=${lastOpenAiEventType || '[none]'}, lastEventAt=${lastOpenAiEventAt ? lastOpenAiEventAt.toISOString() : '[none]'}`));
         openAiWs.on('error', (err) => logger.error(`OpenAI Error: ${err.message}`));
     };
 
     connection.on('close', () => {
+        clearCallerTurnFallback();
         if (openAiWs && openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-        logger.info('Client disconnected');
+        logger.info(`Client disconnected. callSid=${sessionCallSid || 'unknown'}, twilioFrames=${twilioMediaFrames}, afterGreetingFrames=${twilioMediaFramesAfterGreeting}, forwardedToOpenAI=${openAiAudioAppendFrames}, lastOpenAIEvent=${lastOpenAiEventType || '[none]'}`);
     });
 });
 
