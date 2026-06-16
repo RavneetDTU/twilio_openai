@@ -40,6 +40,10 @@ export function getWineTastingPrompt() {
   // 6. BUILD DYNAMIC QUESTION FLOW
   const flowQuestions = [...wineTastingConfig.questionFlow].sort((a, b) => a.order - b.order);
 
+  // 6a. EXTRACT GREETING from questionFlow (order: 1, title: 'Greeting')
+  const greetingQuestion = flowQuestions.find(q => q.title === 'Greeting');
+  const greetingMessage = greetingQuestion?.botMessage || "Hello! Welcome to Wine Tasting Terrance. How can I help you today?";
+
   let dynamicFlowText = "";
   flowQuestions.forEach((q) => {
     const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
@@ -119,7 +123,7 @@ If any mistake happens, acknowledge briefly and correct it naturally — don't o
 🔀 INTENT ROUTING (Listen after greeting)
 
 Start every call with:
-"Hello! Welcome to Wine Tasting Terrance. I can assist you with a reservation or pass a message to the manager. How can I help you today?"
+"${greetingMessage}"
 
 After the guest responds, detect their intent:
 
