@@ -5,7 +5,7 @@ export const laRethaPersona = {
     id: 'la_retha',
     name: "La Retha",
     // Configuration for OpenAI
-    model: 'gpt-realtime-2', // Supports transcription
+    model: 'gpt-realtime-mini', // Supports transcription
     voice: 'marin', // female
     temperature: 0.8,
     // The System Prompt (dynamically generated — called fresh on every call)
