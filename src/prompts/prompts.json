@@ -350,7 +350,7 @@
           "id": "q_e5f6a7b8-c9d0-4890-efab-234567010001",
           "title": "Greeting",
           "order": 1,
-          "botMessage": "Hii their! Welcome to billy steak house — I can assist you with table reservations or messages for the manager.",
+          "botMessage": "Hello! Welcome to La Retha — I can assist you with a table reservation or pass a message to the manager. How can I help you today?",
           "isRequired": true,
           "instructions": null
         },
