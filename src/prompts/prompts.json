@@ -3,6 +3,11 @@
     {
       "restaurantId": "1",
       "name": "Billy's Steakhouse",
+      "phoneNumbers": [],
+      "model": "gpt-realtime-2",
+      "voice": "marin",
+      "temperature": 0.8,
+      "venueType": "steakhouse",
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
@@ -16,34 +21,13 @@
         }
       },
       "operatingHours": {
-        "Monday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Tuesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Wednesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Thursday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Friday": {
-          "open": "12:00 PM",
-          "close": "11:00 PM"
-        },
-        "Saturday": {
-          "open": "11:00 AM",
-          "close": "11:00 PM"
-        },
-        "Sunday": {
-          "open": "11:00 AM",
-          "close": "9:00 PM"
-        }
+        "Monday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Tuesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Wednesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Thursday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Friday": { "open": "12:00 PM", "close": "11:00 PM" },
+        "Saturday": { "open": "11:00 AM", "close": "11:00 PM" },
+        "Sunday": { "open": "11:00 AM", "close": "9:00 PM" }
       },
       "questionFlow": [
         {
@@ -107,6 +91,11 @@
     {
       "restaurantId": "3",
       "name": "Bjorn's Steakhouse",
+      "phoneNumbers": ["+27765575522"],
+      "model": "gpt-realtime-2",
+      "voice": "marin",
+      "temperature": 0.8,
+      "venueType": "steakhouse",
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
@@ -116,34 +105,13 @@
         "otherBookingsByDate": {}
       },
       "operatingHours": {
-        "Monday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Tuesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Wednesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Thursday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Friday": {
-          "open": "12:00 PM",
-          "close": "11:00 PM"
-        },
-        "Saturday": {
-          "open": "11:00 AM",
-          "close": "11:00 PM"
-        },
-        "Sunday": {
-          "open": "11:00 AM",
-          "close": "9:00 PM"
-        }
+        "Monday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Tuesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Wednesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Thursday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Friday": { "open": "12:00 PM", "close": "11:00 PM" },
+        "Saturday": { "open": "11:00 AM", "close": "11:00 PM" },
+        "Sunday": { "open": "11:00 AM", "close": "9:00 PM" }
       },
       "questionFlow": [
         {
@@ -207,6 +175,11 @@
     {
       "restaurantId": "4",
       "name": "Wine Tasting Terrance",
+      "phoneNumbers": ["+27210073477"],
+      "model": "gpt-realtime-2",
+      "voice": "marin",
+      "temperature": 0.8,
+      "venueType": "wine bar",
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
@@ -216,34 +189,13 @@
         "otherBookingsByDate": {}
       },
       "operatingHours": {
-        "Monday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Tuesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Wednesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Thursday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Friday": {
-          "open": "12:00 PM",
-          "close": "11:00 PM"
-        },
-        "Saturday": {
-          "open": "11:00 AM",
-          "close": "11:00 PM"
-        },
-        "Sunday": {
-          "open": "11:00 AM",
-          "close": "9:00 PM"
-        }
+        "Monday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Tuesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Wednesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Thursday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Friday": { "open": "12:00 PM", "close": "11:00 PM" },
+        "Saturday": { "open": "11:00 AM", "close": "11:00 PM" },
+        "Sunday": { "open": "11:00 AM", "close": "9:00 PM" }
       },
       "questionFlow": [
         {
@@ -307,6 +259,11 @@
     {
       "restaurantId": "5",
       "name": "La Retha",
+      "phoneNumbers": ["+270647211953", "+918319377879"],
+      "model": "gpt-realtime-2",
+      "voice": "marin",
+      "temperature": 0.8,
+      "venueType": "restaurant",
       "settings": {
         "depositAmount": 1,
         "currency": "rand",
@@ -316,34 +273,13 @@
         "otherBookingsByDate": {}
       },
       "operatingHours": {
-        "Monday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Tuesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Wednesday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Thursday": {
-          "open": "12:00 PM",
-          "close": "10:00 PM"
-        },
-        "Friday": {
-          "open": "12:00 PM",
-          "close": "11:00 PM"
-        },
-        "Saturday": {
-          "open": "11:00 AM",
-          "close": "11:00 PM"
-        },
-        "Sunday": {
-          "open": "11:00 AM",
-          "close": "9:00 PM"
-        }
+        "Monday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Tuesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Wednesday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Thursday": { "open": "12:00 PM", "close": "10:00 PM" },
+        "Friday": { "open": "12:00 PM", "close": "11:00 PM" },
+        "Saturday": { "open": "11:00 AM", "close": "11:00 PM" },
+        "Sunday": { "open": "11:00 AM", "close": "9:00 PM" }
       },
       "questionFlow": [
         {

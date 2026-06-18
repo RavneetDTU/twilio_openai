@@ -8,8 +8,8 @@ import Twilio from 'twilio';
 import cors from 'cors';
 
 // 1. IMPORT THE DISPATCHER
-import { getPersonaByNumber } from './src/dispatcher.js';
-import { createCallLog, updateCallLog } from './src/services/callService.js';
+import { getTenantByNumber } from './src/dispatcher.js';
+import { createCallLog, updateCallLog, patchCallLogTenant } from './src/services/callService.js';
 import { updateConfig, getRestaurantDetails, addQuestion, deleteQuestion } from './src/utils/config.js';
 import smsRoutes from './src/routes/sms.js';
 import bookingRoutes from './src/routes/booking.js';
@@ -320,9 +320,20 @@ wss.on('connection', (connection, req) => {
             logger.info(`📞 Caller Phone Identified: ${callerPhone}`);
             logger.info(`🆔 Session CallSid captured: ${sessionCallSid}`);
 
-            // Ask Dispatcher for Config
-            currentPersona = getPersonaByNumber(callerPhone);
+            // Ask Dispatcher for Config (data-driven — reads from prompts.json)
+            currentPersona = getTenantByNumber(callerPhone);
             logger.info(`✅ Loaded Persona: ${currentPersona.name}`);
+
+            // Patch the call log with the resolved tenant identity.
+            // createCallLog() runs ~1s earlier at /incoming-call time before
+            // the dispatcher has fired, so restaurantId/Name start as null.
+            if (sessionCallSid) {
+                patchCallLogTenant(
+                    sessionCallSid,
+                    currentPersona.restaurantId,
+                    currentPersona.name
+                ).catch(err => logger.error(`❌ patchCallLogTenant error: ${err.message}`));
+            }
 
             // Connect to OpenAI with specific config
             connectToOpenAI(currentPersona);
@@ -433,9 +444,8 @@ wss.on('connection', (connection, req) => {
                             const { getAvailableCapacityForDate } = await import('./src/services/capacityService.js');
                             const { getRestaurantDetails } = await import('./src/utils/config.js');
 
-                            // Map persona id → restaurantId in prompts.json
-                            const personaToRestaurantId = { billy: '1', bjorn: '3', wine_tasting: '4' };
-                            const restaurantId = personaToRestaurantId[persona.id] || '1';
+                            // restaurantId comes directly from the tenant config — no hardcoded map needed
+                            const restaurantId = persona.restaurantId || persona.id;
                             const restaurantConfig = await getRestaurantDetails(restaurantId);
                             const settings = restaurantConfig?.settings || {};
 
@@ -525,7 +535,7 @@ wss.on('connection', (connection, req) => {
                             } catch (hangupErr) {
                                 logger.error(`❌ Failed to end call ${sessionCallSid}: ${hangupErr.message}`);
                             }
-                        }, 8000); // 8-second delay — lets the audio finish before hanging up
+                        }, 11000); // 8-second delay — lets the audio finish before hanging up
                     }
                 }
 
