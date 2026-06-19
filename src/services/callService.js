@@ -15,26 +15,6 @@ const __dirname = path.dirname(__filename);
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 
-/**
- * Single map: caller phone → { id, name }
- * Any unknown number defaults to Billy's Steakhouse.
- */
-const RESTAURANT_MAP = {
-    '+27765575522': { id: '3', name: "Bjorn's Steakhouse" },
-    '+918930276263': { id: '1', name: "Billy's Steakhouse" },
-    '+918319377879': { id: '5', name: "La Retha" },
-    '+27210073477': { id: '4', name: "Wine Tasting Terrance" },
-    '+270647211953': { id: '5', name: "La Retha" },
-};
-
-const DEFAULT_RESTAURANT = { id: '1', name: "Billy's Steakhouse" };
-
-const getRestaurantInfo = (callerPhone) => {
-    const info = RESTAURANT_MAP[callerPhone] || DEFAULT_RESTAURANT;
-    logger.info(`🏪 Restaurant resolved: ${info.name} (ID: ${info.id}) for caller: ${callerPhone}`);
-    return info;
-};
-
 const getRestaurantNotificationEmail = (restaurantDetails) => {
     return (
         restaurantDetails?.RestaurantEmail ||
@@ -49,24 +29,28 @@ const getRestaurantNotificationEmail = (restaurantDetails) => {
 
 /**
  * Creates a new CallLog document when a call starts.
+ *
+ * Restaurant identity is NOT resolved here — it is patched in ~1s later by
+ * patchCallLogTenant() once the WebSocket 'start' event fires and the
+ * dispatcher resolves the tenant from prompts.json.
+ *
  * @param {Object} params
  * @param {string} params.callSid
- * @param {string} params.from - Customer Phone
- * @param {string} params.to - Bot Phone
+ * @param {string} params.from - Customer Phone (forwarded restaurant number)
+ * @param {string} params.to  - Bot Phone (shared Twilio number)
  */
 export const createCallLog = async ({ callSid, from, to }) => {
     logger.info(`📝 Creating CallLog for SID: ${callSid}`);
 
     try {
-        const { id: restaurantId, name: restaurantName } = getRestaurantInfo(from);
         const paymentId = uuidv4();
 
         const callLogData = {
             callSid,
             customerPhone: from,
             botPhone: to,
-            restaurantId,
-            restaurantName,
+            restaurantId:   null,   // patched by patchCallLogTenant() once WebSocket resolves tenant
+            restaurantName: null,   // patched by patchCallLogTenant() once WebSocket resolves tenant
             paymentId,
             status: 'active',
             bookingStatus: 'pending',
@@ -98,7 +82,7 @@ export const createCallLog = async ({ callSid, from, to }) => {
 
         await db.collection('callLogs').doc(callSid).set(callLogData);
 
-        logger.info(`✅ CallLog Created: ${callSid} (Restaurant: ${restaurantName} [${restaurantId}], Payment ID: ${paymentId})`);
+        logger.info(`✅ CallLog Created: ${callSid} (Payment ID: ${paymentId}) — restaurant identity will be patched by WebSocket start event`);
         return callLogData;
     } catch (error) {
         logger.error(`❌ Error creating CallLog for ${callSid}: ${error.message}`);
@@ -490,6 +474,38 @@ export const updateCallLog = async ({ callSid, recordingUrl, duration }) => {
     } catch (error) {
         logger.error(`❌ Error updating CallLog for ${callSid}: ${error.message}`);
         throw error;
+    }
+};
+
+/**
+ * Patches restaurantId and restaurantName into a CallLog document.
+ *
+ * Called from the WebSocket 'start' event in server.js, ~1 second after the
+ * call log is first created. By this point the dispatcher has resolved the
+ * correct tenant from prompts.json, so we have accurate restaurant identity
+ * without any hardcoded map in this file.
+ *
+ * @param {string} callSid       - Twilio CallSid (Firestore document ID)
+ * @param {string} restaurantId  - Resolved tenant restaurantId (e.g. "3")
+ * @param {string} restaurantName - Resolved tenant name (e.g. "Bjorn's Steakhouse")
+ */
+export const patchCallLogTenant = async (callSid, restaurantId, restaurantName) => {
+    try {
+        if (!callSid || !restaurantId || !restaurantName) {
+            logger.warn(`⚠️ patchCallLogTenant: missing params — callSid:${callSid}, id:${restaurantId}, name:${restaurantName}`);
+            return;
+        }
+
+        await db.collection('callLogs').doc(callSid).update({
+            restaurantId,
+            restaurantName,
+            updatedAt: new Date()
+        });
+
+        logger.info(`✅ CallLog tenant patched: ${callSid} → ${restaurantName} (${restaurantId})`);
+    } catch (error) {
+        // Non-fatal — log and continue. The call still works; only the log tag is missing.
+        logger.error(`❌ patchCallLogTenant failed for ${callSid}: ${error.message}`);
     }
 };
 

@@ -8,9 +8,10 @@ import Twilio from 'twilio';
 import cors from 'cors';
 
 // 1. IMPORT THE DISPATCHER
-import { getPersonaByNumber } from './src/dispatcher.js';
-import { createCallLog, updateCallLog } from './src/services/callService.js';
+import { getTenantByNumber } from './src/dispatcher.js';
+import { createCallLog, updateCallLog, patchCallLogTenant } from './src/services/callService.js';
 import { updateConfig, getRestaurantDetails, addQuestion, deleteQuestion } from './src/utils/config.js';
+import { createTenant } from './src/services/tenantService.js';
 import smsRoutes from './src/routes/sms.js';
 import bookingRoutes from './src/routes/booking.js';
 import paymentRoutes from './src/routes/payment.js';
@@ -315,17 +316,36 @@ wss.on('connection', (connection, req) => {
         // A. Handle 'start' event (Identify Caller & Connect AI)
         if (data.event === 'start') {
             streamSid = data.start.streamSid;
-            sessionCallSid = data.start.callSid;  // Capture Twilio CallSid for later hangup
+            sessionCallSid = data.start.callSid;
             const callerPhone = data.start.customParameters?.caller;
             logger.info(`📞 Caller Phone Identified: ${callerPhone}`);
             logger.info(`🆔 Session CallSid captured: ${sessionCallSid}`);
 
-            // Ask Dispatcher for Config
-            currentPersona = getPersonaByNumber(callerPhone);
-            logger.info(`✅ Loaded Persona: ${currentPersona.name}`);
+            // Async IIFE — getTenantByNumber is now async (Firestore lookup)
+            (async () => {
+                try {
+                    // Ask Dispatcher for Config (Firestore-backed, cache-first)
+                    currentPersona = await getTenantByNumber(callerPhone);
+                    logger.info(`✅ Loaded Persona: ${currentPersona.name}`);
 
-            // Connect to OpenAI with specific config
-            connectToOpenAI(currentPersona);
+                    // Patch the call log with the resolved tenant identity.
+                    // createCallLog() runs ~1s earlier at /incoming-call time
+                    // before the dispatcher has fired, so restaurantId/Name start null.
+                    if (sessionCallSid) {
+                        patchCallLogTenant(
+                            sessionCallSid,
+                            currentPersona.restaurantId,
+                            currentPersona.name
+                        ).catch(err => logger.error(`❌ patchCallLogTenant error: ${err.message}`));
+                    }
+
+                    // Connect to OpenAI with the resolved persona
+                    connectToOpenAI(currentPersona);
+
+                } catch (dispatchErr) {
+                    logger.error(`❌ Dispatcher failed for ${callerPhone}: ${dispatchErr.message}`);
+                }
+            })();
         }
 
         // B. Handle Media (Audio from user)
@@ -433,9 +453,8 @@ wss.on('connection', (connection, req) => {
                             const { getAvailableCapacityForDate } = await import('./src/services/capacityService.js');
                             const { getRestaurantDetails } = await import('./src/utils/config.js');
 
-                            // Map persona id → restaurantId in prompts.json
-                            const personaToRestaurantId = { billy: '1', bjorn: '3', wine_tasting: '4' };
-                            const restaurantId = personaToRestaurantId[persona.id] || '1';
+                            // restaurantId comes directly from the tenant config — no hardcoded map needed
+                            const restaurantId = persona.restaurantId || persona.id;
                             const restaurantConfig = await getRestaurantDetails(restaurantId);
                             const settings = restaurantConfig?.settings || {};
 
@@ -525,7 +544,7 @@ wss.on('connection', (connection, req) => {
                             } catch (hangupErr) {
                                 logger.error(`❌ Failed to end call ${sessionCallSid}: ${hangupErr.message}`);
                             }
-                        }, 8000); // 8-second delay — lets the audio finish before hanging up
+                        }, 11000); // 8-second delay — lets the audio finish before hanging up
                     }
                 }
 
@@ -542,6 +561,56 @@ wss.on('connection', (connection, req) => {
         if (openAiWs && openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
         logger.info('Client disconnected');
     });
+});
+
+// =============================================================================
+// POST /api/restaurant/create
+// Onboards a new restaurant with smart defaults.
+// Required fields: name, phoneNumbers, email, depositAmount, totalCapacity
+// Everything else (hours, questionFlow, model, voice, etc.) is auto-filled.
+// =============================================================================
+app.post('/api/restaurant/create', async (req, res) => {
+    logger.info('🏥 /api/restaurant/create endpoint hit');
+    try {
+        const { name, phoneNumbers, email, depositAmount, totalCapacity, restaurantId, ...optionals } = req.body;
+
+        // Validate required fields
+        const missing = [];
+        if (!name)                        missing.push('name');
+        if (!restaurantId)                missing.push('restaurantId');
+        if (!phoneNumbers?.length)        missing.push('phoneNumbers');
+        if (!email)                       missing.push('email');
+        if (depositAmount === undefined)  missing.push('depositAmount');
+        if (totalCapacity === undefined)  missing.push('totalCapacity');
+
+        if (missing.length) {
+            return res.status(400).json({
+                error: `Missing required fields: ${missing.join(', ')}`,
+                required: ['name', 'restaurantId', 'phoneNumbers', 'email', 'depositAmount', 'totalCapacity'],
+                optional: ['currency', 'timezone', 'venueType', 'voice', 'greetingMessage', 'operatingHours'],
+            });
+        }
+
+        const tenant = await createTenant({ name, phoneNumbers, email, depositAmount, totalCapacity, restaurantId, ...optionals });
+
+        logger.info(`✅ Restaurant created: "${tenant.name}" (${tenant.restaurantId})`);
+        return res.status(201).json({
+            message: 'Restaurant created successfully',
+            restaurantId: tenant.restaurantId,
+            name: tenant.name,
+            phoneNumbers: tenant.phoneNumbers,
+        });
+
+    } catch (error) {
+        if (error.message.startsWith('Missing')) {
+            return res.status(400).json({ error: error.message });
+        }
+        if (error.message.startsWith('DUPLICATE_ID')) {
+            return res.status(409).json({ error: error.message });
+        }
+        logger.error(`❌ Error in /api/restaurant/create: ${error.message}`);
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
 });
 
 server.listen(PORT, () => console.log(`Server listening on ${PORT}`));

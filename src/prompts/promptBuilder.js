@@ -1,74 +1,76 @@
-
-import { createRequire } from "module";
 import logger from '../utils/logger.js';
-const require = createRequire(import.meta.url);
+import { getTenantById } from '../services/tenantService.js';
 
-// Synchronous prompt — capacity is handled via the check_capacity_for_date tool mid-conversation.
-export function getBillysPrompt() {
+// =============================================================================
+// UNIVERSAL PROMPT BUILDER
+// =============================================================================
+// One function that builds the correct AI system prompt for ANY tenant.
+// Input  → a tenant config object (read from prompts.json)
+// Output → a complete system prompt string ready to send to OpenAI
+//
+// To add a new restaurant: add it to prompts.json. Zero changes needed here.
+// =============================================================================
 
-    // 1. READ CONFIG FRESH (Force reload JSON)
-    // We clear the cache so if you updated the price via API, we see it immediately.
-    const jsonPath = "./prompts.json"; // Ensure this path points to your actual JSON file
-    delete require.cache[require.resolve(jsonPath)];
-    const data = require(jsonPath);
+/**
+ * Builds the full OpenAI system prompt for a given tenant config.
+ * Re-reads prompts.json fresh on every call so config changes take effect
+ * immediately without a server restart.
+ *
+ * @param {Object} tenantConfig - A restaurant object from prompts.json
+ * @returns {string} The complete system prompt string
+ */
+export function buildPromptForTenant(tenantConfig) {
 
-    // 2. FIND BILLY'S RESTAURANT
-    const billyConfig = data.restaurants.find(r => r.restaurantId === '1');
-    if (!billyConfig) {
-        throw new Error("Billy's restaurant configuration not found!");
-    }
+    // Use the tenant config passed in directly — it was already fetched from
+    // Firestore (with caching) by the dispatcher before this function is called.
+    // No extra network round-trip needed.
+    const config = tenantConfig;
 
-    // 3. EXTRACT SETTINGS
-    const { depositAmount, currency, timezone } = billyConfig.settings;
-    const allHours = billyConfig.operatingHours;
+    const { name, venueType = 'restaurant', settings, operatingHours, questionFlow } = config;
+    const { depositAmount, currency, timezone } = settings;
 
-    // 4. CALCULATE "TODAY" (Dynamic Time)
-    // This runs instantly when the call happens, so it's always the correct day.
-    const todayName = new Date().toLocaleDateString('en-ZA', { weekday: 'long', timeZone: timezone });
-    const todaySchedule = allHours[todayName] || { open: "Closed", close: "Closed" };
+    // ── DYNAMIC TIME CONTEXT ──────────────────────────────────────────────────
+    const todayName = new Date().toLocaleDateString('en-ZA', {
+        weekday: 'long',
+        timeZone: timezone,
+    });
+    const todaySchedule = operatingHours[todayName] || { open: 'Closed', close: 'Closed' };
 
-    // 5. GENERATE TIME CONTEXT STRING
+    logger.info(`✅ Building prompt for "${name}" — ${todayName} (Open: ${todaySchedule.open})`);
+
     const hoursContext = `
 🕒 Operating Hours Context
 - Today is ${todayName}.
-- The restaurant is open from ${todaySchedule.open} to ${todaySchedule.close}.
+- The ${venueType} is open from ${todaySchedule.open} to ${todaySchedule.close}.
 - If the user asks for a time OUTSIDE these hours, politely decline: "Sorry, we are only open from ${todaySchedule.open} to ${todaySchedule.close} today."
 - Do NOT accept any booking for a time we are closed.
 `;
 
-    // 5b. CAPACITY TOOL INSTRUCTION
-    // The AI must call check_capacity_for_date AFTER it knows BOTH the date AND party size.
+    // ── CAPACITY TOOL INSTRUCTION (shared across all venues) ─────────────────
     const capacityContext = `
 🪑 Seating Capacity Rule (CRITICAL — DO NOT IGNORE)
 - You have access to a tool: check_capacity_for_date(date)
 - Call this tool AFTER you have learned BOTH the booking date AND the party size.
-- Call it immediately after collecting the party size (Step 5), BEFORE moving to confirmation.
+- Call it immediately after collecting the party size, BEFORE moving to confirmation.
 - Do NOT call it before you know the party size — you need both pieces of information.
 - Do NOT assume availability. Always check first.
 - If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date. Would you like to choose a different date?"
-- If party size > available: decline — "I'm sorry, we only have ${'{available}'} seats on that date. Would you like to adjust your party size or choose a different date?"
+- If party size > available: decline — "I'm sorry, we only have {available} seats on that date. Would you like to adjust your party size or choose a different date?"
 - If party size ≤ available: proceed with the booking normally.
 - IMPORTANT: Never proceed to the booking confirmation until this check passes and party size fits.
 `;
 
-    logger.info(`✅ Generating Prompt for Billy's: ${todayName} (Open: ${todaySchedule.open})`);
-    // 6. RETURN THE FINAL PROMPT STRING
-    // We inject the variables we just calculated above.
-   
-    // 6. BUILD DYNAMIC QUESTION FLOW
-    const flowQuestions = [...billyConfig.questionFlow].sort((a, b) => a.order - b.order);
+    // ── DYNAMIC QUESTION FLOW ─────────────────────────────────────────────────
+    const flowQuestions = [...questionFlow].sort((a, b) => a.order - b.order);
 
-    // 6a. EXTRACT GREETING from questionFlow (order: 1, title: 'Greeting')
     const greetingQuestion = flowQuestions.find(q => q.title === 'Greeting');
-    const greetingMessage = greetingQuestion?.botMessage || "Hello! Welcome to Billy's Steak House. How can I help you today?";
-    
-    let dynamicFlowText = "";
-    flowQuestions.forEach((q) => {
-        const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
-        dynamicFlowText += `${q.order}. ${stepTitle}\n"${q.botMessage}"`;
-        
-        if (q.title === 'Phone Capture') {
-            dynamicFlowText += `\n\n📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
+    const greetingMessage  = greetingQuestion?.botMessage
+        || `Hello! Welcome to ${name}. How can I help you today?`;
+
+    // The strict phone-number capture protocol — identical for every restaurant
+    const PHONE_CAPTURE_PROTOCOL = `
+
+📱 STRICT DATA CAPTURE PROTOCOL (Anti-Hallucination Mode)
 
    [INTERNAL INSTRUCTION: DO NOT AUTO-CORRECT]
 
@@ -106,25 +108,32 @@ export function getBillysPrompt() {
    - Say: "Just to verify, I have: [Digit] [Digit] [Digit]... Is that correct?"
 
    PHASE 3: CONFIRMATION
-   - If User says "Yes": Move to Step 4.
-   - If User says "No": Apologize, clear the data, and ask again.\n`;
+   - If User says "Yes": Move to next step.
+   - If User says "No": Apologize, clear the data, and ask again.
+`;
+
+    let dynamicFlowText = '';
+    flowQuestions.forEach(q => {
+        const stepTitle = q.id.charAt(0).toUpperCase() + q.id.slice(1);
+        dynamicFlowText += `${q.order}. ${stepTitle}\n"${q.botMessage}"`;
+
+        if (q.title === 'Phone Capture') {
+            dynamicFlowText += PHONE_CAPTURE_PROTOCOL;
         } else if (q.title === 'Date & Time') {
             dynamicFlowText += `\n(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).\n`;
         } else if (q.instructions) {
-             dynamicFlowText += ` (${q.instructions})\n`;
+            dynamicFlowText += ` (${q.instructions})\n`;
         } else {
-             dynamicFlowText += `\n`;
+            dynamicFlowText += '\n';
         }
-        
-        dynamicFlowText += "\n";
+
+        dynamicFlowText += '\n';
     });
 
-    console.log(`✅ Generating Prompt for Billy's: ${todayName} (Open: ${todaySchedule.open})`);
-
-
+    // ── ASSEMBLE FINAL PROMPT ─────────────────────────────────────────────────
     return `
-You are a warm, professional AI assistant for Billy's Steak House.
-Your job is to assist guests — either with table reservations or by passing messages to the restaurant manager.
+You are a warm, professional AI assistant for ${name}.
+Your job is to assist guests — either with table reservations or by passing messages to the ${venueType} manager.
 
 🎯 Goal
 Listen to what the guest needs and route them to the correct flow:
@@ -174,7 +183,7 @@ If the caller corrects anything:
 
 ✅ Main line Reservation closing
 
-After the caller confirms "yes", say this exactly 
+After the caller confirms "yes", say this exactly:
 "Perfect! To confirm your table, there's a deposit of ${depositAmount} ${currency} per person. A secure payment link will be sent right after this call. Once payment is made, you'll receive a confirmation message. We look forward to welcoming you."
 
 Only say this once, as one complete message. Do not add anything before or after it.
@@ -186,7 +195,6 @@ If asked 'What is this payment?'
 
 If asked 'Why pay first?'
 "We take a small deposit to hold and confirm the table."
-
 
 If caller can't pay immediately:
 "No problem. The link stays active for a short period — once the deposit is paid, your table will be confirmed."
