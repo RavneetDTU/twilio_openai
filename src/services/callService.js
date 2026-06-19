@@ -82,7 +82,7 @@ export const createCallLog = async ({ callSid, from, to }) => {
 
         await db.collection('callLogs').doc(callSid).set(callLogData);
 
-        logger.info(`✅ CallLog Created: ${callSid} (Restaurant: ${restaurantName} [${restaurantId}], Payment ID: ${paymentId})`);
+        logger.info(`✅ CallLog Created: ${callSid} (Payment ID: ${paymentId}) — restaurant identity will be patched by WebSocket start event`);
         return callLogData;
     } catch (error) {
         logger.error(`❌ Error creating CallLog for ${callSid}: ${error.message}`);

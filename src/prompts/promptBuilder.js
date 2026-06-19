@@ -1,7 +1,5 @@
-import { createRequire } from 'module';
 import logger from '../utils/logger.js';
-
-const require = createRequire(import.meta.url);
+import { getTenantById } from '../services/tenantService.js';
 
 // =============================================================================
 // UNIVERSAL PROMPT BUILDER
@@ -23,17 +21,10 @@ const require = createRequire(import.meta.url);
  */
 export function buildPromptForTenant(tenantConfig) {
 
-    // Re-read JSON fresh so any mid-day config updates (deposit, hours, questions)
-    // are reflected on the very next call — same behaviour as before.
-    const jsonPath = './prompts.json';
-    delete require.cache[require.resolve(jsonPath)];
-    const freshData = require(jsonPath);
-
-    // Pull the freshest copy of this restaurant from the file
-    const config = freshData.restaurants.find(r => r.restaurantId === tenantConfig.restaurantId);
-    if (!config) {
-        throw new Error(`Tenant config not found for restaurantId: ${tenantConfig.restaurantId}`);
-    }
+    // Use the tenant config passed in directly — it was already fetched from
+    // Firestore (with caching) by the dispatcher before this function is called.
+    // No extra network round-trip needed.
+    const config = tenantConfig;
 
     const { name, venueType = 'restaurant', settings, operatingHours, questionFlow } = config;
     const { depositAmount, currency, timezone } = settings;
