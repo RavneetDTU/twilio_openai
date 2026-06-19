@@ -2,11 +2,11 @@ import nodemailer from 'nodemailer';
 import logger from '../utils/logger.js';
 
 const NOTIFICATION_CC_EMAILS = [
-    // 'ryan.hearingaidlabs@gmail.com',
-    // 'bjornguido@gmail.com',
+    'ryan.hearingaidlabs@gmail.com',
+    'bjornguido@gmail.com',
     'abhiroy829429@gmail.com',
     'senayush920@gmail.com',
-    // 'ravneet.dtu@gmail.com',
+    'ravneet.dtu@gmail.com',
 
 ];
 
