@@ -1,27 +1,39 @@
+import bodyParser from 'body-parser';
+import cors from 'cors';
+import dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
-import logger from './src/utils/logger.js';
-import WebSocket, { WebSocketServer } from "ws";
-import dotenv from 'dotenv';
-import bodyParser from 'body-parser';
 import Twilio from 'twilio';
-import cors from 'cors';
+import WebSocket, { WebSocketServer } from "ws";
+import logger from './src/utils/logger.js';
 
 // 1. IMPORT THE DISPATCHER
-import { getTenantByNumber } from './src/dispatcher.js';
-import { createCallLog, updateCallLog, patchCallLogTenant } from './src/services/callService.js';
-import { updateConfig, getRestaurantDetails, addQuestion, deleteQuestion } from './src/utils/config.js';
-import { createTenant } from './src/services/tenantService.js';
-import smsRoutes from './src/routes/sms.js';
-import bookingRoutes from './src/routes/booking.js';
-import paymentRoutes from './src/routes/payment.js';
-import payfastNotifyRoutes from './src/routes/payfastNotify.js';
-import verifyRoutes from './src/routes/verify.js';
-import refundRoutes from './src/routes/refund.js';
 import './src/config/firebase.js'; // Initialize Firebase
+import { getTenantByNumber } from './src/dispatcher.js';
+import bookingRoutes from './src/routes/booking.js';
+import openaiWebhookRoutes, { pendingSipCalls } from './src/routes/openaiWebhook.js';
+import payfastNotifyRoutes from './src/routes/payfastNotify.js';
+import paymentRoutes from './src/routes/payment.js';
+import refundRoutes from './src/routes/refund.js';
+import smsRoutes from './src/routes/sms.js';
+import verifyRoutes from './src/routes/verify.js';
+import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services/callService.js';
+import { rejectOpenAICall } from './src/services/openaiCallsService.js';
+import { activeSipSessions } from './src/services/realtimeSipSession.js';
+import { createTenant } from './src/services/tenantService.js';
+import { addQuestion, deleteQuestion, getRestaurantDetails, updateConfig } from './src/utils/config.js';
 
 dotenv.config();
 const { OPENAI_API_KEY, PORT = 9000 } = process.env;
+
+// Feature flag for the SIP Trunking transport migration (see docs/development.md).
+// Defaults to false — when false, /incoming-call behaves EXACTLY as it does
+// today (Media Streams). Only when explicitly set to 'true' in .env does the
+// new Conference + SIP Participant branch activate.
+const SIP_TRUNKING_ENABLED = process.env.SIP_TRUNKING_ENABLED === 'true';
+
+/** Max time to keep the caller on ringback while OpenAI accept + sideband configure. */
+const SIP_RING_SETUP_TIMEOUT_MS = 12000;
 
 if (!OPENAI_API_KEY) {
     logger.error('Missing OpenAI API key.');
@@ -33,6 +45,15 @@ const client = new Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUT
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+
+// OpenAI Realtime SIP webhook — needs the raw request body for HMAC signature
+// verification, so it is mounted with its own JSON parser BEFORE the generic
+// body-parser/express.json() middleware below. This is scoped to this one
+// path only and does not change parsing behavior for any other route.
+app.use('/webhooks/openai', express.json({
+    limit: '2mb',
+    verify: (req, res, buf) => { req.rawBody = buf; }
+}), openaiWebhookRoutes);
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
@@ -83,6 +104,109 @@ app.all('/incoming-call', async (req, res) => {
         logger.error(`❌ Failed to create call log: ${dbError.message}`);
     }
 
+    // =========================================================================
+    // SIP TRUNKING TRANSPORT (feature-flagged — see docs/development.md)
+    // Setup (tenant, OpenAI SIP dial, /accept, sideband session.update) runs
+    // WHILE THE CALLER STILL HEARS RINGBACK — we hold this Twilio webhook
+    // response until OpenAI is ready. Only then do we return Conference TwiML
+    // (which answers the call). Greeting fires when the customer joins
+    // (/conference-events). Recording: Dial record-from-answer-dual.
+    // =========================================================================
+    if (SIP_TRUNKING_ENABLED && callSid) {
+        try {
+            const persona = await getTenantByNumber(callerNumber);
+            logger.info(`✅ [SIP] Loaded Persona: ${persona.name}`);
+
+            patchCallLogTenant(callSid, persona.restaurantId, persona.name)
+                .catch(err => logger.error(`❌ [SIP] patchCallLogTenant error: ${err.message}`));
+
+            let resolveReady;
+            let rejectReady;
+            const readyPromise = new Promise((resolve, reject) => {
+                resolveReady = resolve;
+                rejectReady = reject;
+            });
+
+            pendingSipCalls.set(callSid, {
+                persona,
+                createdAt: Date.now(),
+                resolveReady,
+                rejectReady,
+            });
+
+            // Dial OpenAI without blocking the ready wait — INVITE and webhook/accept
+            // must overlap while the caller still hears PSTN ringback.
+            const sipUri = `sip:${process.env.OPENAI_PROJECT_ID}@sip.api.openai.com;transport=tls?X-Call-Sid=${callSid}`;
+            const dialPromise = client.conferences(callSid).participants.create({
+                from: callerNumber,
+                to: sipUri,
+                label: 'ai-agent',
+                earlyMedia: false,
+                callToken: req.body.CallToken,
+            }).then((participant) => {
+                logger.info(`📞 [SIP] AI participant dial started (${participant.callSid || participant.uri || 'ok'})`);
+            }).catch((dialErr) => {
+                logger.error(`❌ [SIP] participants.create failed: ${dialErr.message}`);
+                rejectReady(dialErr);
+            });
+
+            logger.info(`⏳ [SIP] Waiting up to ${SIP_RING_SETUP_TIMEOUT_MS}ms for OpenAI ready (caller on ringback)...`);
+
+            let session;
+            try {
+                session = await Promise.race([
+                    readyPromise,
+                    new Promise((_, reject) =>
+                        setTimeout(
+                            () => reject(new Error('SIP setup timed out while caller was ringing')),
+                            SIP_RING_SETUP_TIMEOUT_MS
+                        )
+                    ),
+                ]);
+            } catch (waitErr) {
+                const entry = pendingSipCalls.get(callSid);
+                if (entry?.openAiCallId) {
+                    rejectOpenAICall(entry.openAiCallId).catch(() => {});
+                }
+                pendingSipCalls.delete(callSid);
+                // Avoid unhandled rejection if dial is still in flight
+                dialPromise.catch(() => {});
+                throw waitErr;
+            }
+
+            pendingSipCalls.delete(callSid);
+
+            const recordingCallback = `https://${req.headers.host}/recording-complete?callSid=${encodeURIComponent(callSid)}`;
+            const conferenceEvents = `https://${req.headers.host}/conference-events`;
+            // Answer the caller ONLY now — OpenAI sideband is already configured.
+            const sipTwimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+            <Dial record="record-from-answer-dual" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackEvent="completed">
+                <Conference endConferenceOnExit="true" startConferenceOnEnter="true" beep="false" waitUrl="" participantLabel="customer" statusCallback="${conferenceEvents}" statusCallbackEvent="join">${callSid}</Conference>
+            </Dial>
+        </Response>`;
+
+            logger.info(`⏺️ [SIP] Answering caller into Conference (OpenAI already ready) for ${callSid}`);
+            res.type('text/xml').send(sipTwimlResponse);
+
+            // Greeting TTS must start in the same tick as answer — no post-connect silence.
+            session.sendGreeting();
+
+            return;
+
+        } catch (sipErr) {
+            logger.error(`❌ [SIP] Failed to bridge via SIP Trunking: ${sipErr.message}`);
+            if (/already decided/i.test(sipErr.message)) {
+                logger.error(
+                    '❌ [SIP] OpenAI call was accepted/rejected elsewhere. For local tests, OpenAI webhook URL must point ONLY at this ngrok host — disable production openaisip.ayurvedicpromise.com while testing.'
+                );
+            }
+            pendingSipCalls.delete(callSid);
+            // Falls through to Media Streams — slower greeting; fix webhook ownership to avoid this.
+        }
+    }
+
+    // Media Streams path only — Call-level recording is eligible here.
     if (callSid) {
         client.calls(callSid).recordings.create(
             {
@@ -109,13 +233,45 @@ app.all('/incoming-call', async (req, res) => {
 });
 
 
+// Conference participant join — fire SIP greeting the moment the customer is bridged.
+app.post('/conference-events', (req, res) => {
+    res.sendStatus(200);
+
+    const eventName = req.body.StatusCallbackEvent || req.body.EventName;
+    const label = req.body.ParticipantLabel;
+    const conferenceName = req.body.FriendlyName;
+    const participantCallSid = req.body.CallSid;
+
+    logger.info(
+        `[SIP] Conference event: ${eventName} label=${label || '-'} friendly=${conferenceName || '-'} callSid=${participantCallSid || '-'}`
+    );
+
+    if (eventName !== 'participant-join') return;
+    // AI participant is dialed in before statusCallback is attached; ignore if it still fires.
+    if (label === 'ai-agent') return;
+
+    const session =
+        activeSipSessions.get(conferenceName) ||
+        activeSipSessions.get(participantCallSid);
+
+    if (session) {
+        logger.info(`👋 [SIP] Customer joined conference ${conferenceName || participantCallSid} — greeting now`);
+        session.sendGreeting();
+    } else {
+        logger.warn(`[SIP] Participant joined ${conferenceName || participantCallSid} but no activeSipSession`);
+    }
+});
+
+
 // handle recording completion
 app.post('/recording-complete', async (req, res) => {
     logger.info("📨 /recording-complete endpoint hit");
     try {
         const { CallSid, RecordingUrl, RecordingDuration } = req.body;
+        // SIP Dial recording may rely on ?callSid= query fallback (see /incoming-call SIP branch).
+        const resolvedCallSid = CallSid || req.query.callSid;
         await updateCallLog({
-            callSid: CallSid,
+            callSid: resolvedCallSid,
             recordingUrl: RecordingUrl,
             duration: RecordingDuration
         });

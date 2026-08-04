@@ -228,7 +228,7 @@ export async function createTenant(input) {
     const tenantData = {
         name,
         phoneNumbers,
-        model:       'gpt-realtime-2',
+        model:       process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1',
         voice,
         temperature: 0.8,
         venueType,

@@ -5,9 +5,7 @@ const NOTIFICATION_CC_EMAILS = [
     'ryan.hearingaidlabs@gmail.com',
     'bjornguido@gmail.com',
     'abhiroy829429@gmail.com',
-    'senayush920@gmail.com',
     'ravneet.dtu@gmail.com',
-
 ];
 
 const createSmtpTransporter = () => {
