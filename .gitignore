@@ -21,3 +21,6 @@ yarn-error.log*
 Thumbs.db
 prompts.json
 queryRefund.js
+
+# Documentation
+docs/

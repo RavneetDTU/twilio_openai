@@ -15,8 +15,8 @@
 // platform without needing to be registered first.
 // =============================================================================
 
-import { getTenantByPhone, getDefaultTenant } from './services/tenantService.js';
 import { buildPromptForTenant } from './prompts/promptBuilder.js';
+import { getDefaultTenant, getTenantByPhone } from './services/tenantService.js';
 import logger from './utils/logger.js';
 
 /**
@@ -48,17 +48,24 @@ export async function getTenantByNumber(forwardedNumber) {
 
     logger.info(`✅ Tenant resolved: "${tenant.name}" (${tenant.restaurantId})`);
 
+    // Build prompt once during ringback so accept/session.update never wait on it after answer.
+    const instructions = buildPromptForTenant(tenant);
+    const greetingFromFlow = tenant.questionFlow?.find((q) => q.title === 'Greeting')?.botMessage;
+    const greetingMessage =
+        greetingFromFlow ||
+        tenant.greetingMessage ||
+        `Hello! Welcome to ${tenant.name}. How can I help you today?`;
+
     return {
         id:           tenant.restaurantId,
         restaurantId: tenant.restaurantId,
         name:         tenant.name,
-        model:        tenant.model        || 'gpt-realtime-2',
+        // OPENAI_REALTIME_MODEL (env) matches SIP demo override; else tenant Firestore; else gpt-realtime-2.1
+        model:        process.env.OPENAI_REALTIME_MODEL || tenant.model || 'gpt-realtime-2.1',
         voice:        tenant.voice        || 'marin',
         temperature:  tenant.temperature  ?? 0.8,
         speed:        tenant.speed        || undefined,
-        // Fresh prompt built on every call — picks up latest config from Firestore
-        get instructions() {
-            return buildPromptForTenant(tenant);
-        },
+        greetingMessage,
+        instructions,
     };
 }
