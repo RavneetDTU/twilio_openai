@@ -179,7 +179,7 @@ router.post('/notify', async (req, res) => {
                 const paymentDate = now.toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' }); // "YYYY-MM-DD"
                 const paymentTime = now.toLocaleTimeString('en-GB', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false }); // "HH:mm"
 
-                const externalApiUrl = `https://mybookiapis.jarviscalling.ai/restaurants/${callData.restaurantId}/reservations/by-reference/${paymentId}`;
+                const externalApiUrl = `https://mybookiapis.booki.co.za/restaurants/${callData.restaurantId}/reservations/by-reference/${paymentId}`;
         
                 const payload = {
                     date: callData.booking?.date || "NA",

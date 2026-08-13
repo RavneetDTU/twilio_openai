@@ -21,7 +21,7 @@ const getSADateTime = () => {
 // Only sends payment_status and payment_notes — all other fields are unchanged.
 // ─────────────────────────────────────────────────────────────────────────────
 const syncRefundToExternalApi = async ({ restaurantId, paymentId, paymentStatus, paymentNotes }) => {
-    const externalApiUrl = `https://mybookiapis.jarviscalling.ai/restaurants/${restaurantId}/reservations/by-reference/${paymentId}`;
+    const externalApiUrl = `https://mybookiapis.booki.co.za/restaurants/${restaurantId}/reservations/by-reference/${paymentId}`;
 
     const payload = {
         payment_status: paymentStatus,
