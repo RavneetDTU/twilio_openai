@@ -5,7 +5,7 @@ import { sendBookingNotificationEmail } from './emailService.js';
 import { getRestaurantDetails } from '../utils/config.js';
 import logger from '../utils/logger.js';
 
-const RESERVATION_API_BASE = 'https://mybookiapis.jarviscalling.ai/restaurants';
+const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 
 class ManualBookingService {
     /**
