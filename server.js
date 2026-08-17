@@ -12,6 +12,10 @@ import './src/config/firebase.js'; // Initialize Firebase
 import { getTenantByNumber } from './src/dispatcher.js';
 import bookingRoutes from './src/routes/booking.js';
 import openaiWebhookRoutes, { pendingSipCalls } from './src/routes/openaiWebhook.js';
+import payfastCheckoutPage, {
+    paymentFailHandler,
+    paymentSuccessHandler,
+} from './src/routes/payfastCheckoutPage.js';
 import payfastNotifyRoutes from './src/routes/payfastNotify.js';
 import paymentRoutes from './src/routes/payment.js';
 import refundRoutes from './src/routes/refund.js';
@@ -77,6 +81,11 @@ app.use('/api/booking', bookingRoutes);
 
 // Payment API routes
 app.use('/api/payment', paymentRoutes);
+
+// Backend PayFast checkout page (split setup posted here). SMS: PAYMENT_FRONTEND_URL/payment/:id
+app.use('/payment', payfastCheckoutPage);
+app.get('/payment-success', paymentSuccessHandler);
+app.get('/payment-fail', paymentFailHandler);
 
 // Payfast ITN (Instant Transaction Notification) routes
 app.use('/api/payfast', payfastNotifyRoutes);
@@ -296,8 +305,11 @@ app.post('/api/update-config', async (req, res) => {
     } catch (error) {
         if (error.message.includes("Invalid restaurantId") || error.message.includes("Missing required field")) {
             res.status(400).json({ error: error.message });
-        } else if (error.code === 'ENOENT') {
-            res.status(404).json({ error: "Configuration file not found" });
+        } else if (
+            error.message.includes('Restaurant not found') ||
+            error.code === 'ENOENT'
+        ) {
+            res.status(404).json({ error: error.message || 'Restaurant not found' });
         } else {
             logger.error(`Server Error in /update-config: ${error.message}`);
             res.status(500).json({ error: "Internal Server Error" });

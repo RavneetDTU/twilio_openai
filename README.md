@@ -90,13 +90,15 @@ POST /recording-complete     ← Twilio callback when recording is ready
 │   ├── routes/
 │   │   ├── booking.js          # POST /api/booking/manual/:restaurantId
 │   │   ├── sms.js              # POST /api/sms/send, GET /api/sms/status/:callSid
-│   │   ├── payment.js          # GET /api/payment/:paymentId
+│   │   ├── payment.js          # GET /api/payment/:paymentId (+ optional splitPayment)
+│   │   ├── payfastCheckoutPage.js  # GET /payment/:paymentId — PayFast form + split setup
 │   │   ├── payfastNotify.js    # POST /api/payfast/notify, GET /api/payfast/payments/:restaurantId
 │   │   └── verify.js           # POST /api/verify/phone
 │   ├── services/
 │   │   ├── callService.js      # Core call lifecycle: create/update CallLog, transcribe, extract, notify
 │   │   ├── smsService.js       # Twilio SMS — payment links + automated post-call SMS
 │   │   ├── manualBookingService.js  # Manual booking creation + SMS dispatch
+│   │   ├── payfastCheckoutService.js  # Checkout signature + Direct Request split setup
 │   │   └── payfastService.js   # PayFast ITN signature, domain, amount validation
 │   └── utils/
 │       ├── config.js           # Read/write prompts.json — restaurant settings & question flow
@@ -124,21 +126,51 @@ TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_PHONE_NUMBER=+1...
 
-# PayFast
+# PayFast (Booki primary merchant — checkout + ITN)
+PAYFAST_MERCHANT_ID=10000100
+PAYFAST_MERCHANT_KEY=...
 PAYFAST_PASSPHRASE=your_passphrase
 PAYFAST_SANDBOX=false
+# Optional override for ITN notify_url on checkout forms
+# PAYFAST_NOTIFY_URL=https://phone.booki.co.za/api/payfast/notify
 
 # Firebase (fallback if JSON file is absent)
 FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 
-# Frontend
-PAYMENT_FRONTEND_URL=https://mybookip.vercel.app
+# SMS payment links → {PAYMENT_FRONTEND_URL}/payment/{paymentId}
+# Must point at THIS Jarvis host for backend split checkout (Direct Request setup)
+PAYMENT_FRONTEND_URL=https://phone.booki.co.za
 
 # Server
-PORT=9000
+PORT=5014
 ```
 
 > Firebase credentials are loaded from `twilio-openai-calls-firebase-adminsdk-fbsvc-8a3ff10c65.json` at project root. The `FIREBASE_SERVICE_ACCOUNT` env var is a fallback for environments where the file cannot be committed.
+
+> **Restaurant PayFast merchant** is not in `.env`. It is saved from the mybooki dashboard (**Settings → Bank Details**) via `POST /api/update-config` into Firestore `tenants/{restaurantId}.settings.payfastMerchantId` (default split `payfastSplitPercentage: 80`).
+
+---
+
+## PayFast Split Payments (Direct Request)
+
+When a customer pays (e.g. R100) and the restaurant has a valid `payfastMerchantId`:
+
+| Share | Destination |
+|---|---|
+| **80%** (default) | Restaurant PayFast merchant |
+| **~20%** | Booki primary merchant (`.env` `PAYFAST_*`) |
+
+Split is applied **only at checkout** by posting PayFast’s `setup` field (excluded from the MD5 signature). ITN (`POST /api/payfast/notify`) is unchanged. If no restaurant merchant id is configured, checkout posts **no** `setup` (full amount to Booki).
+
+Enable **Split Payments** on the Booki (primary) PayFast account before going live.
+
+Flow:
+
+```text
+SMS → GET /payment/:paymentId (Jarvis HTML form + optional setup)
+    → PayFast process
+    → ITN → POST /api/payfast/notify
+```
 
 ---
 
@@ -187,7 +219,7 @@ The server starts on the port defined in `PORT` (default: `9000`).
 | Method | Path | Body / Params | Description |
 |---|---|---|---|
 | `POST` | `/api/booking/manual/:restaurantId` | `{ name, phoneNo, guests, date?, time?, allergy?, notes? }` | Create manual booking + send SMS |
-| `GET` | `/api/payment/:paymentId` | `:paymentId` = UUID | Fetch booking details for payment page |
+| `GET` | `/api/payment/:paymentId` | `:paymentId` = UUID | Booking JSON for payment UIs; includes `splitPayment` when restaurant merchant is set |
 
 ### SMS
 
@@ -200,6 +232,9 @@ The server starts on the port defined in `PORT` (default: `9000`).
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/payment/:paymentId` | Backend checkout page — posts to PayFast with optional split `setup` |
+| `GET` | `/payment-success` | PayFast `return_url` landing page |
+| `GET` | `/payment-fail` | PayFast `cancel_url` landing page |
 | `POST` | `/api/payfast/notify` | PayFast ITN endpoint — validates & records payment |
 | `GET` | `/api/payfast/payments/:restaurantId` | List all payments for a restaurant |
 
@@ -376,7 +411,8 @@ Thin Express routers — delegate all business logic to service layer.
 |---|---|---|
 | `booking.js` | `POST /api/booking/manual/:restaurantId` | `manualBookingService.createManualBooking` |
 | `sms.js` | `POST /api/sms/send`, `GET /api/sms/status/:callSid` | `smsService`, Firestore |
-| `payment.js` | `GET /api/payment/:paymentId` | Firestore (`callLogs`, `manualBookings`) |
+| `payment.js` | `GET /api/payment/:paymentId` | Firestore (`callLogs`, `manualBookings`); optional `splitPayment` |
+| `payfastCheckoutPage.js` | `GET /payment/:paymentId`, success/fail pages | `payfastCheckoutService`, tenant settings |
 | `payfastNotify.js` | `POST /api/payfast/notify`, `GET /api/payfast/payments/:restaurantId` | `payfastService`, Firestore |
 | `verify.js` | `POST /api/verify/phone` | Twilio Lookup v2 |
 

@@ -24,3 +24,6 @@ queryRefund.js
 
 # Documentation
 docs/
+
+# Local-only certified-feature lock
+.cursor/rules/protected-certified-features.mdc
