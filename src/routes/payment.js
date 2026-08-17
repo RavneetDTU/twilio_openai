@@ -1,7 +1,23 @@
 import express from 'express';
 import { db } from '../config/firebase.js';
+import { resolveSplitPaymentFromSettings } from '../services/payfastCheckoutService.js';
+import { getRestaurantDetails } from '../utils/config.js';
 
 const router = express.Router();
+
+/**
+ * Optional PayFast Direct Request split config from tenant settings.
+ * @see https://developers.payfast.co.za/docs#splitpayments
+ */
+const resolveSplitPayment = async (restaurantId) => {
+    if (!restaurantId) return null;
+    try {
+        const restaurant = await getRestaurantDetails(restaurantId);
+        return resolveSplitPaymentFromSettings(restaurant);
+    } catch {
+        return null;
+    }
+};
 
 /**
  * GET /api/payment/:paymentId
@@ -108,6 +124,13 @@ router.get('/:paymentId', async (req, res) => {
             createdAt: callData.createdAt,
             updatedAt: callData.updatedAt
         };
+
+        // Additive: PayFast Split Payments Direct Request config for checkout frontend.
+        // Omitted when restaurant has no valid payfastMerchantId (non-split unchanged).
+        const splitPayment = await resolveSplitPayment(callData.restaurantId);
+        if (splitPayment) {
+            bookingDetails.splitPayment = splitPayment;
+        }
 
         console.log(`✅ Booking details found for ${callData.booking.name}`);
         res.json(bookingDetails);
