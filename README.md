@@ -138,8 +138,8 @@ PAYFAST_SANDBOX=false
 FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 
 # SMS payment links → {PAYMENT_FRONTEND_URL}/payment/{paymentId}
-# Must point at THIS Jarvis host for backend split checkout (Direct Request setup)
-PAYMENT_FRONTEND_URL=https://phone.booki.co.za
+# Live checkout is mybookip: https://github.com/RavneetDTU/mybookip
+PAYMENT_FRONTEND_URL=https://payment.booki.co.za
 
 # Server
 PORT=5014
@@ -164,12 +164,22 @@ Split is applied **only at checkout** by posting PayFast’s `setup` field (excl
 
 Enable **Split Payments** on the Booki (primary) PayFast account before going live.
 
+**Three apps:**
+
+| App | Repo / host | Role |
+|---|---|---|
+| Voice / APIs / ITN | `twilio_openai` → `https://phone.booki.co.za` | Calls, SMS, `GET /api/payment/:id` (`splitPayment`), ITN |
+| Restaurant dashboard | `mybooki` | Settings → Bank Details (store restaurant merchant in Firestore). `/payments` is history only |
+| Customer checkout | [mybookip](https://github.com/RavneetDTU/mybookip) → `https://payment.booki.co.za` | SMS pay page; posts PayFast `setup` when API returns `splitPayment` |
+
 Flow:
 
 ```text
-SMS → GET /payment/:paymentId (Jarvis HTML form + optional setup)
-    → PayFast process
-    → ITN → POST /api/payfast/notify
+AI booking on phone.booki.co.za
+  → SMS: https://payment.booki.co.za/payment/{paymentId}
+  → mybookip GET https://phone.booki.co.za/api/payment/{id}
+  → PayFast process (optional setup)
+  → ITN POST https://phone.booki.co.za/api/payfast/notify
 ```
 
 ---
@@ -232,12 +242,10 @@ The server starts on the port defined in `PORT` (default: `9000`).
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/payment/:paymentId` | Backend checkout page — posts to PayFast with optional split `setup` |
-| `GET` | `/payment-success` | PayFast `return_url` landing page |
-| `GET` | `/payment-fail` | PayFast `cancel_url` landing page |
 | `POST` | `/api/payfast/notify` | PayFast ITN endpoint — validates & records payment |
 | `GET` | `/api/payfast/payments/:restaurantId` | List all payments for a restaurant |
 
+Customer checkout is **not** this server. SMS uses `PAYMENT_FRONTEND_URL` → [mybookip](https://github.com/RavneetDTU/mybookip) (`https://payment.booki.co.za/payment/{id}`).
 ### Utilities
 
 | Method | Path | Body | Description |

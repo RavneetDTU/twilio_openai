@@ -380,3 +380,104 @@ export async function deleteTenantQuestion(restaurantId, questionId) {
     logger.info(`✅ Question "${questionId}" deleted from ${restaurantId}`);
     return { restaurantId, ...data, questionFlow: filtered };
 }
+
+// =============================================================================
+// READ — List all tenants (internal BookiOps sync — additive)
+// =============================================================================
+
+/**
+ * Returns a summary list of all tenants for admin directory sync.
+ * Does not include questionFlow / operatingHours / payment secrets.
+ * @returns {Promise<Array<Object>>}
+ */
+export async function listTenants() {
+    const snap = await db.collection('tenants').get();
+    const restaurants = [];
+    snap.forEach((doc) => {
+        const d = doc.data() || {};
+        restaurants.push({
+            restaurantId: doc.id,
+            name: d.name || null,
+            email: d.settings?.RestaurantEmail || null,
+            phoneNumbers: Array.isArray(d.phoneNumbers) ? d.phoneNumbers : [],
+            isActive: d.isActive !== false,
+            createdAt: d.createdAt || null,
+            updatedAt: d.updatedAt || null,
+        });
+    });
+    restaurants.sort((a, b) => String(a.restaurantId).localeCompare(String(b.restaurantId), undefined, { numeric: true }));
+    return restaurants;
+}
+
+// =============================================================================
+// WRITE — Update ONLY phoneNumbers + phoneIndex (narrow BookiOps approve path)
+// =============================================================================
+
+/**
+ * Replaces tenant phoneNumbers and rebuilds phoneIndex.
+ * Does NOT modify name, email, settings, PayFast, bot, capacity, or any other fields.
+ *
+ * @param {string} restaurantId
+ * @param {string[]} phoneNumbers  Non-empty E.164 array
+ * @returns {Promise<{ restaurantId: string, phoneNumbers: string[], previousPhoneNumbers: string[] }>}
+ */
+export async function updateTenantPhoneNumbers(restaurantId, phoneNumbers) {
+    if (!restaurantId?.toString().trim()) {
+        throw new Error('Missing required field: restaurantId');
+    }
+    if (!Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+        throw new Error('Missing required field: phoneNumbers');
+    }
+
+    const cleaned = phoneNumbers
+        .map((p) => (typeof p === 'string' ? p.trim() : ''))
+        .filter(Boolean)
+        .map(sanitisePhone);
+
+    if (!cleaned.length) {
+        throw new Error('Missing required field: phoneNumbers');
+    }
+
+    const id = restaurantId.toString().trim();
+    const docRef = db.collection('tenants').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+        throw new Error(`Restaurant not found with ID: ${id}`);
+    }
+
+    const existing = doc.data() || {};
+    const previousPhoneNumbers = Array.isArray(existing.phoneNumbers) ? [...existing.phoneNumbers] : [];
+
+    // Update ONLY phoneNumbers (+ updatedAt). No other tenant fields.
+    await docRef.update({
+        phoneNumbers: cleaned,
+        updatedAt: new Date(),
+    });
+
+    // Rebuild phoneIndex: remove old index docs for previous numbers, set new ones.
+    const batch = db.batch();
+    const previousSanitised = new Set(previousPhoneNumbers.map(sanitisePhone));
+    const nextSanitised = new Set(cleaned);
+
+    for (const oldPhone of previousSanitised) {
+        if (!nextSanitised.has(oldPhone)) {
+            batch.delete(db.collection('phoneIndex').doc(oldPhone));
+        }
+    }
+    for (const phone of cleaned) {
+        batch.set(db.collection('phoneIndex').doc(phone), { restaurantId: id });
+    }
+    await batch.commit();
+
+    _invalidate(`tenant:${id}`);
+    for (const p of previousPhoneNumbers) _invalidate(`phone:${p}`);
+    for (const p of cleaned) _invalidate(`phone:${p}`);
+
+    logger.info(`✅ Tenant phoneNumbers updated: ${id} (${previousPhoneNumbers.join(',') || 'none'} → ${cleaned.join(',')})`);
+
+    return {
+        restaurantId: id,
+        phoneNumbers: cleaned,
+        previousPhoneNumbers,
+    };
+}
