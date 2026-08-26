@@ -11,8 +11,8 @@ class SmsService {
             process.env.TWILIO_AUTH_TOKEN
         );
         this.fromNumber = process.env.TWILIO_PHONE_NUMBER;
-        // Split checkout lives on Jarvis GET /payment/:id — set PAYMENT_FRONTEND_URL to this host in prod
-        this.paymentBaseUrl = process.env.PAYMENT_FRONTEND_URL || 'https://phone.booki.co.za';
+        // SMS links: {PAYMENT_FRONTEND_URL}/payment/{paymentId} → mybookip (payment.booki.co.za)
+        this.paymentBaseUrl = process.env.PAYMENT_FRONTEND_URL || 'https://payment.booki.co.za';
     }
 
     /**

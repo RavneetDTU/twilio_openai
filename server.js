@@ -21,6 +21,7 @@ import paymentRoutes from './src/routes/payment.js';
 import refundRoutes from './src/routes/refund.js';
 import smsRoutes from './src/routes/sms.js';
 import verifyRoutes from './src/routes/verify.js';
+import internalRoutes from './src/routes/internal.js';
 import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services/callService.js';
 import { rejectOpenAICall } from './src/services/openaiCallsService.js';
 import { activeSipSessions } from './src/services/realtimeSipSession.js';
@@ -780,5 +781,10 @@ app.post('/api/restaurant/create', async (req, res) => {
         return res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+// =============================================================================
+// Internal BookiOps APIs (service key required) — additive only
+// =============================================================================
+app.use('/api/internal', internalRoutes);
 
 server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
