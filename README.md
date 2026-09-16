@@ -7,6 +7,7 @@ A production-ready Node.js backend that connects **Twilio Media Streams** with t
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
+- [SIP Trunking (live call path)](#sip-trunking-live-call-path)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Environment Variables](#environment-variables)

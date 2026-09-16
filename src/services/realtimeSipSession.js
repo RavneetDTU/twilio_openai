@@ -12,8 +12,9 @@ import Twilio from 'twilio';
 import logger from '../utils/logger.js';
 import { getAvailableCapacityForDate } from './capacityService.js';
 import { getRestaurantDetails } from '../utils/config.js';
+import { openaiSipHeaders } from './openaiCallsService.js';
 
-const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
+const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
 
 const twilioClient = new Twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
@@ -82,7 +83,7 @@ export class RealtimeSipSession {
             const wsUrl = `wss://api.openai.com/v1/realtime?call_id=${this.callId}`;
 
             this.ws = new WebSocket(wsUrl, {
-                headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+                headers: openaiSipHeaders(),
                 perMessageDeflate: false,
             });
 

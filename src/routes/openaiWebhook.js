@@ -79,6 +79,14 @@ async function acceptIncomingCall(event) {
     const sipHeaders = data.sip_headers || [];
     const callSidHeader = sipHeaders.find((h) => h.name.toLowerCase() === 'x-call-sid')?.value;
 
+    const toHeader = sipHeaders.find((h) => h.name.toLowerCase() === 'to')?.value;
+    const sipProject = toHeader?.match(/sip:([^@;>\s]+)@/i)?.[1];
+    if (sipProject && process.env.OPENAI_PROJECT_ID && sipProject !== process.env.OPENAI_PROJECT_ID) {
+        logger.warn(
+            `[SIP Webhook] INVITE To: project "${sipProject}" does not match OPENAI_PROJECT_ID — /accept will look in the wrong project`
+        );
+    }
+
     logger.info(`[SIP Webhook] Incoming call | call_id: ${callId} | Correlated CallSid: ${callSidHeader || 'MISSING'}`);
 
     if (!callSidHeader || !pendingSipCalls.has(callSidHeader)) {

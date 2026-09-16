@@ -16,7 +16,28 @@
 
 import logger from '../utils/logger.js';
 
-const { OPENAI_API_KEY } = process.env;
+const { OPENAI_API_KEY, OPENAI_PROJECT_ID } = process.env;
+
+/**
+ * Auth headers for Realtime SIP REST (/accept, /reject, /refer) and the
+ * sideband WebSocket. OpenAI looks up call_id in the project this header
+ * selects; without it, /accept can 404 with "No session found for the
+ * provided call_id" even though the webhook was verified. Must match the
+ * user part of sip:{OPENAI_PROJECT_ID}@sip.api.openai.com.
+ *
+ * @param {Record<string, string>} [extra]
+ * @returns {Record<string, string>}
+ */
+export function openaiSipHeaders(extra = {}) {
+    const headers = {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        ...extra,
+    };
+    if (OPENAI_PROJECT_ID) {
+        headers['OpenAI-Project'] = OPENAI_PROJECT_ID;
+    }
+    return headers;
+}
 
 /**
  * @typedef {Object} OpenAICallApiResult
@@ -50,6 +71,9 @@ export async function acceptOpenAICall(callId, persona) {
         instructions: persona.instructions,
     };
 
+    if (!OPENAI_PROJECT_ID) {
+        logger.warn('[SIP] OPENAI_PROJECT_ID is unset — /accept may 404 with call_id_not_found');
+    }
     logger.info(`[SIP] Accepting call ${callId} for model "${payload.model}"...`);
 
     let attempts = 0;
@@ -61,10 +85,7 @@ export async function acceptOpenAICall(callId, persona) {
         try {
             const response = await fetch(url, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${OPENAI_API_KEY}`,
-                    'Content-Type': 'application/json',
-                },
+                headers: openaiSipHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(payload),
             });
 
@@ -125,10 +146,7 @@ export async function rejectOpenAICall(callId, statusCode) {
     try {
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
+            headers: openaiSipHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(payload),
         });
 
@@ -169,10 +187,7 @@ export async function referOpenAICall(callId, targetUri) {
     try {
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
+            headers: openaiSipHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(payload),
         });
 
