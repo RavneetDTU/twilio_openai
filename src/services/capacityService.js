@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { checkRestaurantAvailability, isAvailabilityCheckEnabled } from './restaurantAvailabilityService.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 
@@ -50,23 +51,42 @@ export async function getBookedGuestsForDate(restaurantId, dateStr) {
  * @param {Object} settings       - Restaurant settings from prompts.json
  * @param {string} restaurantId   - Restaurant ID
  * @param {string} dateStr        - Date in YYYY-MM-DD format
+ * @param {string} [timeStr]      - Requested time; used only when RESTAURANT_AVAILABILITY_CHECK_ENABLED=true
  * @returns {Promise<{totalCapacity, aiBooked, otherBookings, available, dateStr}>}
+ *   When the availability flag is on, also: isOpen, isHoliday, closedReason, shift, serviceHours.
  */
-export async function getAvailableCapacityForDate(settings, restaurantId, dateStr) {
+export async function getAvailableCapacityForDate(settings, restaurantId, dateStr, timeStr) {
     const totalCapacity = Number(settings?.totalCapacity) || 0;
 
     // Per-date other-source bookings map (e.g. { "2026-05-22": 4 })
     const otherBookingsByDate = settings?.otherBookingsByDate || {};
     const otherBookings = Number(otherBookingsByDate[dateStr]) || 0;
 
-    const aiBooked = await getBookedGuestsForDate(restaurantId, dateStr);
+    const availabilityEnabled = isAvailabilityCheckEnabled();
+    const [aiBooked, availability] = await Promise.all([
+        getBookedGuestsForDate(restaurantId, dateStr),
+        availabilityEnabled ? checkRestaurantAvailability(restaurantId, dateStr, timeStr) : Promise.resolve(null),
+    ]);
 
-    const available = Math.max(0, totalCapacity - aiBooked - otherBookings);
+    const seatsLeft = Math.max(0, totalCapacity - aiBooked - otherBookings);
+    const available = availability && !availability.isOpen ? 0 : seatsLeft;
 
     logger.info(
         `📊 [Capacity] Restaurant ${restaurantId} on ${dateStr} | ` +
-        `Total: ${totalCapacity} | AI Booked: ${aiBooked} | Other: ${otherBookings} | Available: ${available}`
+        `Total: ${totalCapacity} | AI Booked: ${aiBooked} | Other: ${otherBookings} | Available: ${available}` +
+        (availability && !availability.isOpen ? ` | CLOSED: ${availability.closedReason}` : '')
     );
 
-    return { totalCapacity, aiBooked, otherBookings, available, dateStr };
+    if (!availability) {
+        return { totalCapacity, aiBooked, otherBookings, available, dateStr };
+    }
+
+    return {
+        totalCapacity, aiBooked, otherBookings, available, dateStr,
+        isOpen: availability.isOpen,
+        isHoliday: availability.isHoliday,
+        closedReason: availability.closedReason,
+        shift: availability.shift,
+        serviceHours: availability.serviceHours,
+    };
 }

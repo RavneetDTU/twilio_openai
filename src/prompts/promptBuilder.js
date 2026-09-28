@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import { getTenantById } from '../services/tenantService.js';
+import { AVAILABILITY_PROMPT_RULES, isAvailabilityCheckEnabled } from '../services/restaurantAvailabilityService.js';
 
 // =============================================================================
 // UNIVERSAL PROMPT BUILDER
@@ -143,7 +144,7 @@ Listen to what the guest needs and route them to the correct flow:
 ${hoursContext}
 
 ${capacityContext}
-
+${isAvailabilityCheckEnabled() ? AVAILABILITY_PROMPT_RULES : ''}
 💬 Tone
 Friendly, calm, and professional. Keep responses short and clear.
 Never say "Let me check" or "Checking availability" — respond immediately.

@@ -26,6 +26,7 @@ import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services
 import { rejectOpenAICall } from './src/services/openaiCallsService.js';
 import { activeSipSessions } from './src/services/realtimeSipSession.js';
 import { createTenant } from './src/services/tenantService.js';
+import { AVAILABILITY_TIME_PARAM, isAvailabilityCheckEnabled } from './src/services/restaurantAvailabilityService.js';
 import { addQuestion, deleteQuestion, getRestaurantDetails, updateConfig } from './src/utils/config.js';
 
 dotenv.config();
@@ -568,7 +569,8 @@ wss.on('connection', (connection, req) => {
                                     date: {
                                         type: 'string',
                                         description: 'The booking date in YYYY-MM-DD format (e.g. "2026-05-22")'
-                                    }
+                                    },
+                                    ...(isAvailabilityCheckEnabled() ? { time: AVAILABILITY_TIME_PARAM } : {})
                                 },
                                 required: ['date']
                             }
@@ -627,7 +629,7 @@ wss.on('connection', (connection, req) => {
                             const restaurantConfig = await getRestaurantDetails(restaurantId);
                             const settings = restaurantConfig?.settings || {};
 
-                            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr);
+                            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr, args.time);
 
                             logger.info(`📊 [Tool] check_capacity_for_date(${dateStr}) → available: ${capacity.available}`);
 
@@ -643,7 +645,12 @@ wss.on('connection', (connection, req) => {
                                         aiBooked: capacity.aiBooked,
                                         otherSourceBookings: capacity.otherBookings,
                                         available: capacity.available,
-                                        fullyBooked: capacity.available === 0
+                                        fullyBooked: capacity.available === 0,
+                                        isOpen: capacity.isOpen,
+                                        isHoliday: capacity.isHoliday,
+                                        closedReason: capacity.closedReason,
+                                        shift: capacity.shift,
+                                        serviceHours: capacity.serviceHours
                                     })
                                 }
                             }));

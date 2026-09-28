@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import Twilio from 'twilio';
 import logger from '../utils/logger.js';
 import { getAvailableCapacityForDate } from './capacityService.js';
+import { AVAILABILITY_TIME_PARAM, isAvailabilityCheckEnabled } from './restaurantAvailabilityService.js';
 import { getRestaurantDetails } from '../utils/config.js';
 
 const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
@@ -38,6 +39,17 @@ const CHECK_CAPACITY_TOOL = {
         required: ['date'],
     },
 };
+
+function capacityToolDefinition() {
+    if (!isAvailabilityCheckEnabled()) return CHECK_CAPACITY_TOOL;
+    return {
+        ...CHECK_CAPACITY_TOOL,
+        parameters: {
+            ...CHECK_CAPACITY_TOOL.parameters,
+            properties: { ...CHECK_CAPACITY_TOOL.parameters.properties, time: AVAILABILITY_TIME_PARAM },
+        },
+    };
+}
 
 const HANGUP_DELAY_MS = 11000;
 const SESSION_READY_TIMEOUT_MS = 5000;
@@ -140,7 +152,7 @@ export class RealtimeSipSession {
                         speed: this.persona.speed,
                     },
                 },
-                tools: [CHECK_CAPACITY_TOOL],
+                tools: [capacityToolDefinition()],
                 tool_choice: 'auto',
             },
         });
@@ -279,7 +291,7 @@ export class RealtimeSipSession {
             const restaurantConfig = await getRestaurantDetails(restaurantId);
             const settings = restaurantConfig?.settings || {};
 
-            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr);
+            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr, args.time);
 
             logger.info(`📊 [SIP Tool] check_capacity_for_date(${dateStr}) → available: ${capacity.available}`);
 
@@ -295,6 +307,11 @@ export class RealtimeSipSession {
                         otherSourceBookings: capacity.otherBookings,
                         available: capacity.available,
                         fullyBooked: capacity.available === 0,
+                        isOpen: capacity.isOpen,
+                        isHoliday: capacity.isHoliday,
+                        closedReason: capacity.closedReason,
+                        shift: capacity.shift,
+                        serviceHours: capacity.serviceHours,
                     }),
                 },
             });
