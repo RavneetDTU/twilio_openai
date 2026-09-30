@@ -1,92 +1,191 @@
 import logger from '../utils/logger.js';
-import { checkRestaurantAvailability, isAvailabilityCheckEnabled } from './restaurantAvailabilityService.js';
+import { normaliseTime } from './restaurantAvailabilityService.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
+const REQUEST_TIMEOUT_MS = 4000;
 
 /**
- * Fetches the total booked guest count for a SPECIFIC date from the
- * external Reservation API (mybookiapis.booki.co.za).
+ * Sitting capacity for a booking time.
  *
- * @param {string} restaurantId  - Restaurant ID (e.g. "1")
- * @param {string} dateStr       - Date string in YYYY-MM-DD format
- * @returns {Promise<number>}    - Total guests already booked on that date (AI + manual)
+ * Source of truth: GET /restaurants/:id/check-availability?date=&time=
+ * The API picks the sittings that cover that time (weekly slots, or the
+ * date-specific schedule when one exists). Overlapping sittings all come
+ * back in `matches`. Capacity is per sitting: seats left = sitting_capacity
+ * − booked_guests. A null capacity means no limit.
+ *
+ * This does not use settings.totalCapacity or otherBookingsByDate.
  */
-export async function getBookedGuestsForDate(restaurantId, dateStr) {
-    const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
 
-    try {
-        logger.info(`📡 [Capacity] Fetching bookings for ${dateStr} from API: ${url}?date=${dateStr}`);
+function seatsForMatch(raw) {
+    const capacity = raw?.sitting_capacity == null ? null : Number(raw.sitting_capacity);
+    const bookedGuests = Number(raw?.booked_guests) || 0;
+    const closed = raw?.available === false;
+    const unlimited = !closed && capacity == null;
+    const seatsLeft = closed ? 0 : (unlimited ? null : Math.max(0, capacity - bookedGuests));
+    return {
+        sittingId: raw?.sitting_id ?? null,
+        sittingName: raw?.sitting_name || null,
+        sittingCapacity: capacity,
+        bookedGuests,
+        seatsLeft,
+        unlimited,
+    };
+}
 
-        const response = await fetch(`${url}?date=${dateStr}`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            logger.error(`❌ [Capacity] Reservation API error (${response.status}): ${errText}`);
-            return 0; // Safe fallback — don't block the call
-        }
-
-        const data = await response.json();
-        const totalGuests = Number(data.total_guests) || 0;
-        logger.info(`✅ [Capacity] Booked guests on ${dateStr} for restaurant ${restaurantId}: ${totalGuests}`);
-        return totalGuests;
-
-    } catch (err) {
-        logger.error(`❌ [Capacity] Failed to fetch bookings for ${dateStr}: ${err.message}`);
-        return 0; // Safe fallback
+function matchesFromCheck(check) {
+    if (Array.isArray(check?.matches) && check.matches.length > 0) {
+        return check.matches.map(seatsForMatch);
     }
+    if (check?.sitting_id != null || check?.sitting_name) {
+        return [seatsForMatch(check)];
+    }
+    return [];
 }
 
 /**
- * Computes available seating for a SPECIFIC booking date.
- *
- * Formula:
- *   available = totalCapacity - bookedByAI(date) - otherSourceBookings(date)
- *
- * `otherBookingsByDate` is a map stored in settings:
- *   { "2026-05-22": 4, "2026-05-23": 2 }
- *
- * @param {Object} settings       - Restaurant settings from prompts.json
- * @param {string} restaurantId   - Restaurant ID
- * @param {string} dateStr        - Date in YYYY-MM-DD format
- * @param {string} [timeStr]      - Requested time; used only when RESTAURANT_AVAILABILITY_CHECK_ENABLED=true
- * @returns {Promise<{totalCapacity, aiBooked, otherBookings, available, dateStr}>}
- *   When the availability flag is on, also: isOpen, isHoliday, closedReason, shift, serviceHours.
+ * Prefer the sitting the API selected (top-level sitting_id) when it can
+ * hold the party. Otherwise the first match that can. Overlaps are not rejected.
+ * @param {Array} matches
+ * @param {number|null} partySize
+ * @param {number|null} preferredId
  */
-export async function getAvailableCapacityForDate(settings, restaurantId, dateStr, timeStr) {
-    const totalCapacity = Number(settings?.totalCapacity) || 0;
+export function chooseSitting(matches, partySize, preferredId) {
+    const fits = (match) => match.unlimited || (match.seatsLeft != null && match.seatsLeft >= partySize);
+    const preferred = matches.find((match) => preferredId != null && String(match.sittingId) === String(preferredId));
+    if (partySize == null) return preferred || matches[0] || null;
+    if (preferred && fits(preferred)) return preferred;
+    return matches.find(fits) || null;
+}
 
-    // Per-date other-source bookings map (e.g. { "2026-05-22": 4 })
-    const otherBookingsByDate = settings?.otherBookingsByDate || {};
-    const otherBookings = Number(otherBookingsByDate[dateStr]) || 0;
+function toHm(rawTime) {
+    if (rawTime == null) return null;
+    const text = String(rawTime).trim();
+    return normaliseTime(text) || (/^\d{2}:\d{2}$/.test(text) ? text : null);
+}
 
-    const availabilityEnabled = isAvailabilityCheckEnabled();
-    const [aiBooked, availability] = await Promise.all([
-        getBookedGuestsForDate(restaurantId, dateStr),
-        availabilityEnabled ? checkRestaurantAvailability(restaurantId, dateStr, timeStr) : Promise.resolve(null),
-    ]);
+async function fetchCheckAvailability(restaurantId, dateStr, time) {
+    const url = `${RESERVATION_API_BASE}/${restaurantId}/check-availability?date=${encodeURIComponent(dateStr)}&time=${encodeURIComponent(time)}`;
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+    }
+    return response.json();
+}
 
-    const seatsLeft = Math.max(0, totalCapacity - aiBooked - otherBookings);
-    const available = availability && !availability.isOpen ? 0 : seatsLeft;
+/**
+ * @param {Object} _settings  unused — kept so existing tool call sites stay the same
+ * @param {string} restaurantId
+ * @param {string} dateStr    YYYY-MM-DD
+ * @param {string} [timeStr]  booking time
+ */
+export async function getAvailableCapacityForDate(_settings, restaurantId, dateStr, timeStr) {
+    const time = toHm(timeStr);
+    const base = {
+        date: dateStr,
+        time,
+        available: null,
+        unlimited: false,
+        fullyBooked: false,
+        needsTime: false,
+        checkFailed: false,
+        isOpen: true,
+        isHoliday: false,
+        closedReason: null,
+        sittingId: null,
+        sittingName: null,
+        sittingCapacity: null,
+        bookedGuests: null,
+        matches: [],
+    };
 
-    logger.info(
-        `📊 [Capacity] Restaurant ${restaurantId} on ${dateStr} | ` +
-        `Total: ${totalCapacity} | AI Booked: ${aiBooked} | Other: ${otherBookings} | Available: ${available}` +
-        (availability && !availability.isOpen ? ` | CLOSED: ${availability.closedReason}` : '')
-    );
-
-    if (!availability) {
-        return { totalCapacity, aiBooked, otherBookings, available, dateStr };
+    if (!restaurantId || !dateStr || !time) {
+        logger.info(`📊 [Capacity] ${restaurantId} ${dateStr} → time missing, not a sitting check`);
+        return { ...base, needsTime: true };
     }
 
+    let check;
+    try {
+        check = await fetchCheckAvailability(restaurantId, dateStr, time);
+    } catch (err) {
+        logger.error(`❌ [Capacity] check-availability failed for ${restaurantId} ${dateStr} ${time}: ${err.message} — not blocking`);
+        return { ...base, checkFailed: true, unlimited: true };
+    }
+
+    const matches = matchesFromCheck(check);
+    // Top-level sitting_id is the sitting the API selected for this time.
+    const selected = chooseSitting(matches, null, check.sitting_id);
+
+    if (check.is_open === false || matches.length === 0) {
+        logger.info(
+            `📊 [Capacity] ${restaurantId} ${dateStr} ${time} → closed (${check.reason || 'no sitting'})`
+        );
+        return {
+            ...base,
+            isOpen: false,
+            isHoliday: Boolean(check.is_holiday),
+            closedReason: check.reason || 'That time is not inside a sitting',
+            matches,
+        };
+    }
+
+    const unlimited = Boolean(selected?.unlimited);
+    const available = unlimited ? null : (selected?.seatsLeft ?? 0);
+
+    logger.info(
+        `📊 [Capacity] ${restaurantId} ${dateStr} ${time} → ${selected?.sittingName || 'sitting'} ` +
+        `capacity ${selected?.sittingCapacity ?? 'none'} booked ${selected?.bookedGuests ?? 0} ` +
+        `| matches ${matches.length} | seats left ${unlimited ? 'unlimited' : available}`
+    );
+
     return {
-        totalCapacity, aiBooked, otherBookings, available, dateStr,
-        isOpen: availability.isOpen,
-        isHoliday: availability.isHoliday,
-        closedReason: availability.closedReason,
-        shift: availability.shift,
-        serviceHours: availability.serviceHours,
+        ...base,
+        available,
+        unlimited,
+        fullyBooked: !unlimited && available === 0,
+        isHoliday: Boolean(check.is_holiday),
+        sittingId: selected?.sittingId ?? null,
+        sittingName: selected?.sittingName ?? null,
+        sittingCapacity: selected?.sittingCapacity ?? null,
+        bookedGuests: selected?.bookedGuests ?? null,
+        matches,
     };
+}
+
+/** Shape returned to the realtime tool. No restaurant-wide capacity fields. */
+export function capacityToolOutput(capacity) {
+    return {
+        date: capacity.date,
+        time: capacity.time,
+        available: capacity.available,
+        unlimited: capacity.unlimited,
+        fullyBooked: capacity.fullyBooked,
+        needsTime: capacity.needsTime,
+        checkFailed: capacity.checkFailed,
+        isOpen: capacity.isOpen,
+        isHoliday: capacity.isHoliday,
+        closedReason: capacity.closedReason,
+        sittingId: capacity.sittingId,
+        sittingName: capacity.sittingName,
+        sittingCapacity: capacity.sittingCapacity,
+        bookedGuests: capacity.bookedGuests,
+        matches: capacity.matches,
+    };
+}
+
+/**
+ * Sitting to store on the reservation for this date/time/party.
+ * Uses the same check-availability response. Returns null if the time
+ * matches no sitting or the API could not be reached (booking is not blocked).
+ */
+export async function resolveSittingIdForReservation(restaurantId, dateStr, rawTime, _partySize) {
+    const capacity = await getAvailableCapacityForDate(null, restaurantId, dateStr, rawTime);
+    logger.info(
+        `📊 [Capacity] Reservation sitting for ${restaurantId} ${dateStr} ${rawTime} party ${_partySize} → ${capacity.sittingId ?? 'none'}`
+    );
+    if (capacity.checkFailed || capacity.needsTime || !capacity.isOpen) return null;
+    return capacity.sittingId ?? null;
 }

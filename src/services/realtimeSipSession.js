@@ -10,9 +10,8 @@
 import WebSocket from 'ws';
 import Twilio from 'twilio';
 import logger from '../utils/logger.js';
-import { getAvailableCapacityForDate } from './capacityService.js';
-import { AVAILABILITY_TIME_PARAM, isAvailabilityCheckEnabled } from './restaurantAvailabilityService.js';
-import { getRestaurantDetails } from '../utils/config.js';
+import { capacityToolOutput, getAvailableCapacityForDate } from './capacityService.js';
+import { AVAILABILITY_TIME_PARAM } from './restaurantAvailabilityService.js';
 
 const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
 
@@ -27,7 +26,7 @@ const CLOSING_PHRASES = [
 const CHECK_CAPACITY_TOOL = {
     type: 'function',
     name: 'check_capacity_for_date',
-    description: 'Check how many seats are available at the restaurant on a specific date. Call this BEFORE confirming any reservation.',
+    description: 'Check how many seats are left in the sitting that covers a booking date and time. Call this BEFORE confirming any reservation.',
     parameters: {
         type: 'object',
         properties: {
@@ -35,20 +34,14 @@ const CHECK_CAPACITY_TOOL = {
                 type: 'string',
                 description: 'The booking date in YYYY-MM-DD format (e.g. "2026-05-22")',
             },
+            time: AVAILABILITY_TIME_PARAM,
         },
-        required: ['date'],
+        required: ['date', 'time'],
     },
 };
 
 function capacityToolDefinition() {
-    if (!isAvailabilityCheckEnabled()) return CHECK_CAPACITY_TOOL;
-    return {
-        ...CHECK_CAPACITY_TOOL,
-        parameters: {
-            ...CHECK_CAPACITY_TOOL.parameters,
-            properties: { ...CHECK_CAPACITY_TOOL.parameters.properties, time: AVAILABILITY_TIME_PARAM },
-        },
-    };
+    return CHECK_CAPACITY_TOOL;
 }
 
 const HANGUP_DELAY_MS = 11000;
@@ -288,31 +281,16 @@ export class RealtimeSipSession {
             const dateStr = args.date;
 
             const restaurantId = this.persona.restaurantId || this.persona.id;
-            const restaurantConfig = await getRestaurantDetails(restaurantId);
-            const settings = restaurantConfig?.settings || {};
+            const capacity = await getAvailableCapacityForDate(null, restaurantId, dateStr, args.time);
 
-            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr, args.time);
-
-            logger.info(`📊 [SIP Tool] check_capacity_for_date(${dateStr}) → available: ${capacity.available}`);
+            logger.info(`📊 [SIP Tool] check_capacity_for_date(${dateStr} ${args.time || ''}) → available: ${capacity.available} sitting: ${capacity.sittingName || '-'}`);
 
             this.send({
                 type: 'conversation.item.create',
                 item: {
                     type: 'function_call_output',
                     call_id: response.call_id,
-                    output: JSON.stringify({
-                        date: dateStr,
-                        totalCapacity: capacity.totalCapacity,
-                        aiBooked: capacity.aiBooked,
-                        otherSourceBookings: capacity.otherBookings,
-                        available: capacity.available,
-                        fullyBooked: capacity.available === 0,
-                        isOpen: capacity.isOpen,
-                        isHoliday: capacity.isHoliday,
-                        closedReason: capacity.closedReason,
-                        shift: capacity.shift,
-                        serviceHours: capacity.serviceHours,
-                    }),
+                    output: JSON.stringify(capacityToolOutput(capacity)),
                 },
             });
 

@@ -26,7 +26,7 @@ import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services
 import { rejectOpenAICall } from './src/services/openaiCallsService.js';
 import { activeSipSessions } from './src/services/realtimeSipSession.js';
 import { createTenant } from './src/services/tenantService.js';
-import { AVAILABILITY_TIME_PARAM, isAvailabilityCheckEnabled } from './src/services/restaurantAvailabilityService.js';
+import { AVAILABILITY_TIME_PARAM } from './src/services/restaurantAvailabilityService.js';
 import { addQuestion, deleteQuestion, getRestaurantDetails, updateConfig } from './src/utils/config.js';
 
 dotenv.config();
@@ -562,7 +562,7 @@ wss.on('connection', (connection, req) => {
                         {
                             type: 'function',
                             name: 'check_capacity_for_date',
-                            description: 'Check how many seats are available at the restaurant on a specific date. Call this BEFORE confirming any reservation.',
+                            description: 'Check how many seats are left in the sitting that covers a booking date and time. Call this BEFORE confirming any reservation.',
                             parameters: {
                                 type: 'object',
                                 properties: {
@@ -570,9 +570,9 @@ wss.on('connection', (connection, req) => {
                                         type: 'string',
                                         description: 'The booking date in YYYY-MM-DD format (e.g. "2026-05-22")'
                                     },
-                                    ...(isAvailabilityCheckEnabled() ? { time: AVAILABILITY_TIME_PARAM } : {})
+                                    time: AVAILABILITY_TIME_PARAM
                                 },
-                                required: ['date']
+                                required: ['date', 'time']
                             }
                         }
                     ],
@@ -620,18 +620,13 @@ wss.on('connection', (connection, req) => {
                             const args = JSON.parse(response.arguments);
                             const dateStr = args.date; // e.g. "2026-05-22"
 
-                            // Re-read config fresh to get latest totalCapacity + otherBookingsByDate
-                            const { getAvailableCapacityForDate } = await import('./src/services/capacityService.js');
-                            const { getRestaurantDetails } = await import('./src/utils/config.js');
+                            const { capacityToolOutput, getAvailableCapacityForDate } = await import('./src/services/capacityService.js');
 
                             // restaurantId comes directly from the tenant config — no hardcoded map needed
                             const restaurantId = persona.restaurantId || persona.id;
-                            const restaurantConfig = await getRestaurantDetails(restaurantId);
-                            const settings = restaurantConfig?.settings || {};
+                            const capacity = await getAvailableCapacityForDate(null, restaurantId, dateStr, args.time);
 
-                            const capacity = await getAvailableCapacityForDate(settings, restaurantId, dateStr, args.time);
-
-                            logger.info(`📊 [Tool] check_capacity_for_date(${dateStr}) → available: ${capacity.available}`);
+                            logger.info(`📊 [Tool] check_capacity_for_date(${dateStr} ${args.time || ''}) → available: ${capacity.available} sitting: ${capacity.sittingName || '-'}`);
 
                             // Send the tool result back to OpenAI so the AI can speak it
                             openAiWs.send(JSON.stringify({
@@ -639,19 +634,7 @@ wss.on('connection', (connection, req) => {
                                 item: {
                                     type: 'function_call_output',
                                     call_id: response.call_id,
-                                    output: JSON.stringify({
-                                        date: dateStr,
-                                        totalCapacity: capacity.totalCapacity,
-                                        aiBooked: capacity.aiBooked,
-                                        otherSourceBookings: capacity.otherBookings,
-                                        available: capacity.available,
-                                        fullyBooked: capacity.available === 0,
-                                        isOpen: capacity.isOpen,
-                                        isHoliday: capacity.isHoliday,
-                                        closedReason: capacity.closedReason,
-                                        shift: capacity.shift,
-                                        serviceHours: capacity.serviceHours
-                                    })
+                                    output: JSON.stringify(capacityToolOutput(capacity))
                                 }
                             }));
 

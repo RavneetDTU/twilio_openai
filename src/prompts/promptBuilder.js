@@ -40,22 +40,28 @@ export function buildPromptForTenant(tenantConfig) {
     logger.info(`✅ Building prompt for "${name}" — ${todayName} (Open: ${todaySchedule.open})`);
 
     const hoursContext = `
-🕒 Operating Hours Context
-- Today is ${todayName}.
-- The ${venueType} is open from ${todaySchedule.open} to ${todaySchedule.close}.
-- If the user asks for a time OUTSIDE these hours, politely decline: "Sorry, we are only open from ${todaySchedule.open} to ${todaySchedule.close} today."
-- Do NOT accept any booking for a time we are closed.
+🕒 Opening times
+- Today is ${todayName}. The guest may book today, tomorrow, or a later date.
+- Do NOT use one daily open-close window, and do NOT refuse a time because it feels early or late.
+- A time is allowed only when a sitting covers that date and time. Breakfast can be in the morning even if other sittings start later.
+- Never say "we are only open from ${todaySchedule.open} to ${todaySchedule.close}". That single range is not the schedule.
+- Decide with check_capacity_for_date. If isOpen is false, use closedReason and offer another time. Do not invent an open-close range.
 `;
 
     // ── CAPACITY TOOL INSTRUCTION (shared across all venues) ─────────────────
     const capacityContext = `
 🪑 Seating Capacity Rule (CRITICAL — DO NOT IGNORE)
-- You have access to a tool: check_capacity_for_date(date)
-- Call this tool AFTER you have learned BOTH the booking date AND the party size.
-- Call it immediately after collecting the party size, BEFORE moving to confirmation.
-- Do NOT call it before you know the party size — you need both pieces of information.
-- Do NOT assume availability. Always check first.
-- If the tool returns available = 0: decline politely — "I'm so sorry, we are fully booked on that date. Would you like to choose a different date?"
+- You have access to a tool: check_capacity_for_date(date, time)
+- Call this tool AFTER you know the booking date, the booking time, AND the party size.
+- Call it immediately after you have all three, BEFORE moving to confirmation.
+- Always pass time as 24-hour HH:mm (e.g. "10:00", "15:00").
+- The tool finds which sitting covers that time and how many seats that sitting has left. Do not decide the sitting from the clock, and do not use a restaurant-wide seat total.
+- If needsTime is true: ask for the time and call the tool again. Do not confirm yet.
+- If checkFailed is true: the availability service could not be reached. Continue the booking. Do not decline for capacity.
+- If isOpen is false: do NOT book. Use closedReason (for example a holiday or a time outside every sitting) and offer another time or date. Do NOT say "fully booked".
+- If unlimited is true: that sitting has no seat limit. Continue the booking.
+- available, sittingId, and sittingName are the sitting the availability service selected for that time. If matches lists other sittings, they overlap and each has its own seatsLeft. If the caller names one of them, use that match's seatsLeft instead of available. If they do not name one, use available and sittingId.
+- If fullyBooked is true or available = 0: decline — "I'm so sorry, we are fully booked on that date. Would you like to choose a different date?"
 - If party size > available: decline — "I'm sorry, we only have {available} seats on that date. Would you like to adjust your party size or choose a different date?"
 - If party size ≤ available: proceed with the booking normally.
 - IMPORTANT: Never proceed to the booking confirmation until this check passes and party size fits.
@@ -121,7 +127,7 @@ export function buildPromptForTenant(tenantConfig) {
         if (q.title === 'Phone Capture') {
             dynamicFlowText += PHONE_CAPTURE_PROTOCOL;
         } else if (q.title === 'Date & Time') {
-            dynamicFlowText += `\n(Check against Operating Hours: We are open ${todaySchedule.open} - ${todaySchedule.close} today).\n`;
+            dynamicFlowText += `\n(Accept the date and time they give, including tomorrow morning. Do not refuse it against a single daily open-close. The sitting check decides after you know the party size.)\n`;
         } else if (q.instructions) {
             dynamicFlowText += ` (${q.instructions})\n`;
         } else {

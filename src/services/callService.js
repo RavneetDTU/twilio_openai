@@ -7,6 +7,8 @@ import { v4 as uuidv4 } from 'uuid';
 import smsService from './smsService.js';
 import { sendBookingNotificationEmail } from './emailService.js';
 import { getRestaurantDetails } from '../utils/config.js';
+import { resolveSittingIdForReservation } from './capacityService.js';
+import { normaliseTime } from './restaurantAvailabilityService.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -119,16 +121,34 @@ const classifyBooking = (bookingData) => {
 const sendReservationToApi = async (restaurantId, paymentId, bookingData, transcriptText) => {
     const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
 
+    let sittingId = null;
+    try {
+        sittingId = await resolveSittingIdForReservation(
+            restaurantId,
+            bookingData.date,
+            bookingData.time,
+            bookingData.guests
+        );
+    } catch (sittingErr) {
+        logger.error(`❌ [Capacity] Could not resolve sitting for reservation: ${sittingErr.message}`);
+    }
+
+    const apiTime = normaliseTime(bookingData.time) || null;
+    if (bookingData.time && !apiTime) {
+        logger.error(`❌ Reservation time "${bookingData.time}" is not HH:mm and could not be converted`);
+    }
+
     const payload = {
         reference_id: paymentId || null,
         name: bookingData.name || null,
         phone: bookingData.phoneNo || null,
         date: bookingData.date || null,
-        time: bookingData.time || null,
+        time: apiTime,
         party_size: bookingData.guests || 0,
         allergies: bookingData.allergy || null,
         notes: bookingData.notes || null,
-        transcription: transcriptText || null
+        transcription: transcriptText || null,
+        ...(sittingId != null ? { sitting_id: sittingId } : {})
     };
 
     logger.info(`📡 Sending reservation to API: ${url}`);
