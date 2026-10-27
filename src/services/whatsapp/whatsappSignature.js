@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 const PREFIX = 'sha256=';
 
-function safeCompare(a, b) {
+export function safeCompare(a, b) {
     const bufA = Buffer.from(a, 'utf8');
     const bufB = Buffer.from(b, 'utf8');
     if (bufA.length !== bufB.length) {
