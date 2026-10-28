@@ -31,7 +31,15 @@ import {
 } from './whatsappDateTime.js';
 import { normalisePhoneInput, validateName, validateRequests } from './whatsappHandlers.js';
 import { toMillis } from './whatsappSessionStore.js';
-import { cancelledText, confirmationText, formatMoney, MAX_GUESTS } from './whatsappSteps.js';
+import {
+    cancelledText,
+    confirmationText,
+    formatMoney,
+    MAX_GUESTS,
+    sendWelcome,
+    WELCOME_ROWS,
+    welcomeText,
+} from './whatsappSteps.js';
 
 export const DEFAULT_AI_MODEL = 'gpt-4.1-mini';
 
@@ -337,6 +345,17 @@ export async function handleAiMessage(input, existingSession, ctx) {
         return null;
     }
     if (RESET_WORDS.has(lower)) session = newAiSession(ctx);
+
+    if (!session.history || session.history.length === 0) {
+        await sendWelcome(ctx);
+        return {
+            ...session,
+            history: [
+                { role: 'user', content: inputToText(input) || '(empty message)' },
+                { role: 'assistant', content: `${welcomeText(ctx.restaurant)}\n[Options shown: ${WELCOME_ROWS.map((r) => r.title).join(', ')}]` },
+            ],
+        };
+    }
 
     let knownName = null;
     try {

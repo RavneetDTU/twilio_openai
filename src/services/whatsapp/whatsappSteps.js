@@ -64,9 +64,12 @@ export const WELCOME_ROWS = [
 ];
 
 /** Welcome as a list: "Choose an option" opens a sheet with one row per action. */
+export function welcomeText(restaurant) {
+    return `Hello! Welcome to ${restaurant.name} 👋\n\nI'd be happy to help you book a table. What would you like to do?`;
+}
+
 export function sendWelcome(ctx, intro) {
-    const body = intro
-        || `Hello! Welcome to ${ctx.restaurant.name} 👋\n\nI'd be happy to help you book a table. What would you like to do?`;
+    const body = intro || welcomeText(ctx.restaurant);
     return ctx.client.sendList(ctx.waId, body, 'Choose an option', WELCOME_ROWS, 'What can I help with?');
 }
 

@@ -44,23 +44,46 @@ function aiCtx(script, overrides = {}) {
     return base;
 }
 
+const started = (extra = {}) => ({
+    mode: 'ai',
+    restaurantId: '1',
+    history: [{ role: 'user', content: 'Hi' }, { role: 'assistant', content: 'Hello! Welcome to Billy\'s Steakhouse.' }],
+    ...extra,
+});
+
 describe('AI conversation', () => {
-    it('replies in free text and keeps the history', async () => {
-        const { ctx, client, ai } = aiCtx([say("Hi Thandi! Lovely to hear from you. Are you looking to book a table?")]);
+    it('first message gets the welcome with "Choose an option", without calling the model', async () => {
+        const { ctx, client, ai } = aiCtx([]);
         const session = await handleAiMessage(text('Hi'), null, ctx);
 
+        assert.equal(ai.requests.length, 0);
         assert.equal(client.sent.length, 1);
-        assert.equal(client.last().type, 'text');
-        assert.match(bodyOf(client.last()), /book a table/);
+        const [body, buttonText, rows] = client.last().args;
+        assert.equal(client.last().type, 'list');
+        assert.match(body, /Hello! Welcome to Billy's Steakhouse/);
+        assert.equal(buttonText, 'Choose an option');
+        assert.deepEqual(rows.map((r) => r.title), ['🍽️ Book a Table', '📖 View Menu', '📞 Contact Us']);
         assert.equal(session.mode, 'ai');
-        assert.deepEqual(session.history, [
-            { role: 'user', content: 'Hi' },
-            { role: 'assistant', content: "Hi Thandi! Lovely to hear from you. Are you looking to book a table?" },
+        assert.equal(session.history.length, 2);
+        assert.match(session.history[1].content, /Options shown: 🍽️ Book a Table/);
+    });
+
+    it('a tapped option goes to the AI as text and the reply is free text', async () => {
+        const { ctx, client, ai } = aiCtx([say('Lovely! How many guests, and which day were you thinking?')]);
+        const first = await handleAiMessage(text('Hi'), null, ctx);
+        const session = await handleAiMessage({ type: 'reply', id: 'menu:book', title: '🍽️ Book a Table' }, first, ctx);
+
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /How many guests/);
+        assert.deepEqual(session.history.slice(2), [
+            { role: 'user', content: '🍽️ Book a Table' },
+            { role: 'assistant', content: 'Lovely! How many guests, and which day were you thinking?' },
         ]);
 
         const request = ai.requests[0];
         assert.equal(request.model, 'test-model');
         assert.equal(request.messages[0].role, 'system');
+        assert.equal(request.messages.at(-1).content, '🍽️ Book a Table');
         assert.deepEqual(request.tools.map((t) => t.function.name), ['get_available_times', 'check_availability', 'create_booking']);
     });
 
@@ -69,7 +92,7 @@ describe('AI conversation', () => {
             call('check_availability', { date: '2026-11-03', time: '19:00', guests: 4 }),
             say('Good news, 7pm on Tuesday works for 4. Shall I book it under Thandi?'),
         ]);
-        await handleAiMessage(text('Table for 4 on Tuesday 3 Nov at 7pm?'), null, ctx);
+        await handleAiMessage(text('Table for 4 on Tuesday 3 Nov at 7pm?'), started(), ctx);
 
         const toolMessage = ai.requests[1].messages.find((m) => m.role === 'tool');
         assert.equal(JSON.parse(toolMessage.content).available, true);
@@ -81,7 +104,7 @@ describe('AI conversation', () => {
             call('check_availability', { date: '2026-11-03', time: '20:00', guests: 4 }),
             say("8pm is full, sorry. I can do 6pm or 7pm, would either work?"),
         ]);
-        await handleAiMessage(text('8pm for 4 on the 3rd'), null, ctx);
+        await handleAiMessage(text('8pm for 4 on the 3rd'), started(), ctx);
         const result = JSON.parse(ai.requests[1].messages.find((m) => m.role === 'tool').content);
         assert.equal(result.available, false);
         assert.equal(result.reason, 'fully booked');
@@ -92,7 +115,7 @@ describe('AI conversation', () => {
         const { ctx, client, booked, saved, ai } = aiCtx([
             call('create_booking', { name: 'Thandi Mokoena', guests: 4, date: '2026-11-03', time: '19:00', special_requests: 'Birthday' }),
         ]);
-        const session = await handleAiMessage(text('Yes please, book it'), { mode: 'ai', restaurantId: '1', history: [] }, ctx);
+        const session = await handleAiMessage(text('Yes please, book it'), started(), ctx);
 
         assert.equal(ai.requests.length, 1, 'no extra model call after booking');
         assert.equal(booked.length, 1);
@@ -110,34 +133,35 @@ describe('AI conversation', () => {
             call('create_booking', { name: 'Thandi', guests: 4, date: '2026-11-03', time: '19:00' }),
             say("You're already booked for that, Thandi. See you then!"),
         ]);
-        const prior = { mode: 'ai', restaurantId: '1', history: [], lastBooking: { date: '2026-11-03', time: '19:00', guests: 4, paymentId: 'x' } };
+        const prior = started({ lastBooking: { date: '2026-11-03', time: '19:00', guests: 4, paymentId: 'x' } });
         await handleAiMessage(text('book it'), prior, ctx);
         assert.equal(booked.length, 0);
     });
 
     it('a model error sends a polite fallback, not a crash', async () => {
         const { ctx, client } = aiCtx([new Error('rate limited')]);
-        const session = await handleAiMessage(text('Hi'), null, ctx);
+        const session = await handleAiMessage(text('Are you open on Sunday?'), started(), ctx);
         assert.match(bodyOf(client.last()), /little trouble/);
-        assert.deepEqual(session.history, []);
+        assert.deepEqual(session.history, started().history);
     });
 
-    it('"restart" clears the history, "cancel" ends the chat', async () => {
-        const prior = { mode: 'ai', restaurantId: '1', history: [{ role: 'user', content: 'old' }, { role: 'assistant', content: 'old reply' }] };
-
-        const { ctx, ai } = aiCtx([say('Hi again! How can I help?')]);
-        await handleAiMessage(text('restart'), prior, ctx);
-        assert.equal(ai.requests[0].messages.length, 2);
+    it('"restart" shows the welcome again, "cancel" ends the chat', async () => {
+        const { ctx, client, ai } = aiCtx([]);
+        const session = await handleAiMessage(text('restart'), started(), ctx);
+        assert.equal(ai.requests.length, 0);
+        assert.equal(client.last().type, 'list');
+        assert.equal(session.history.length, 2);
 
         const second = aiCtx([]);
-        assert.equal(await handleAiMessage(text('cancel'), prior, second.ctx), null);
+        assert.equal(await handleAiMessage(text('cancel'), started(), second.ctx), null);
         assert.match(bodyOf(second.client.last()), /cancelled/);
     });
 
     it('a guided-mode session is not reused in AI mode', async () => {
-        const { ctx, ai } = aiCtx([say('Hello!')]);
+        const { ctx, client, ai } = aiCtx([]);
         await handleAiMessage(text('Hi'), { step: 'confirm', restaurantId: '1', data: { name: 'X' } }, ctx);
-        assert.equal(ai.requests[0].messages.length, 2);
+        assert.equal(ai.requests.length, 0);
+        assert.equal(client.last().type, 'list');
     });
 });
 
