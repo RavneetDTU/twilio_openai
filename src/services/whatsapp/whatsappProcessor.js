@@ -12,6 +12,7 @@
 
 import logger from '../../utils/logger.js';
 import { DEFAULT_TIMEZONE } from './whatsappConfig.js';
+import { handleAiMessage } from './whatsappAiAgent.js';
 import { handleMessage } from './whatsappHandlers.js';
 
 const chains = new Map();
@@ -101,7 +102,9 @@ async function processMessage(message, metadata, profileName, deps) {
         return;
     }
 
-    deps.client.markRead(message.id);
+    const config = deps.getConfig();
+    const aiMode = config.conversationMode !== 'guided' && Boolean(deps.ai);
+    deps.client.markRead(message.id, { typing: aiMode });
 
     const restaurant = await deps.resolveRestaurant(metadata);
     if (!restaurant) {
@@ -121,15 +124,19 @@ async function processMessage(message, metadata, profileName, deps) {
         profileName,
         restaurant,
         client: deps.client,
-        config: deps.getConfig(),
+        config,
         now: deps.now ? deps.now() : new Date(),
         availability: deps.availability,
         booking: deps.booking,
         contacts: deps.contacts,
+        ai: deps.ai,
     };
 
-    logger.info(`💬 [WhatsApp] ${waId} → ${restaurant.id} step=${session?.step || 'new'} input=${input.type}${input.id ? `:${input.id}` : ''}`);
-    const next = await handleMessage(input, session, ctx);
+    const state = aiMode ? 'ai' : (session?.step || 'new');
+    logger.info(`💬 [WhatsApp] ${waId} → ${restaurant.id} mode=${state} input=${input.type}${input.id ? `:${input.id}` : ''}`);
+    const next = aiMode
+        ? await handleAiMessage(input, session, ctx)
+        : await handleMessage(input, session, ctx);
 
     if (next) await deps.store.save(waId, next);
     else await deps.store.clear(waId);

@@ -9,6 +9,7 @@
 // =============================================================================
 
 import express from 'express';
+import OpenAI from 'openai';
 import admin, { db } from '../config/firebase.js';
 import { getAvailableCapacityForDate } from '../services/capacityService.js';
 import manualBookingService from '../services/manualBookingService.js';
@@ -58,6 +59,7 @@ function getDeps() {
             contacts: createContactService({ db, FieldValue: admin.firestore.FieldValue }),
             resolveRestaurant,
             getConfig: getWhatsAppConfig,
+            ai: process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null,
         };
     }
     return deps;

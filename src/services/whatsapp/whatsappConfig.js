@@ -42,5 +42,8 @@ export function getWhatsAppConfig() {
         timezone: process.env.WA_TIMEZONE || '',
         restaurantId: process.env.WA_RESTAURANT_ID || '',
         alsoSendSms: process.env.WA_ALSO_SEND_SMS === 'true',
+        // 'ai' (default): free-text conversation. 'guided': buttons and lists.
+        conversationMode: process.env.WA_CONVERSATION_MODE === 'guided' ? 'guided' : 'ai',
+        aiModel: process.env.WA_AI_MODEL || '',
     };
 }

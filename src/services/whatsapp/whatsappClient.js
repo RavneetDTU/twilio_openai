@@ -156,7 +156,16 @@ export function createWhatsAppClient({ fetchImpl = fetch, getConfig = getWhatsAp
             return post({ to: toRecipient(to), type: 'template', template }, `template "${name}"`);
         },
 
-        markRead(messageId) {
+        /** Blue ticks; with { typing: true } also shows "typing…" until the reply (max ~25s). */
+        async markRead(messageId, { typing = false } = {}) {
+            if (typing) {
+                const result = await post({
+                    status: 'read',
+                    message_id: messageId,
+                    typing_indicator: { type: 'text' },
+                }, 'mark-read+typing');
+                if (result.ok) return result;
+            }
             return post({ status: 'read', message_id: messageId }, 'mark-read');
         },
     };
