@@ -157,6 +157,20 @@ describe('AI conversation', () => {
         assert.match(bodyOf(second.client.last()), /cancelled/);
     });
 
+    it('"Hi" in an ongoing chat starts fresh with the welcome list', async () => {
+        for (const greeting of ['Hi', 'hello!', 'Hey ']) {
+            const { ctx, client, ai } = aiCtx([]);
+            const session = await handleAiMessage(text(greeting), started({ history: [
+                { role: 'user', content: 'Table for 5 tomorrow' },
+                { role: 'assistant', content: 'What time?' },
+            ] }), ctx);
+            assert.equal(ai.requests.length, 0);
+            assert.equal(client.last().type, 'list');
+            assert.equal(client.last().args[1], 'Choose an option');
+            assert.equal(session.history.length, 2);
+        }
+    });
+
     it('a guided-mode session is not reused in AI mode', async () => {
         const { ctx, client, ai } = aiCtx([]);
         await handleAiMessage(text('Hi'), { step: 'confirm', restaurantId: '1', data: { name: 'X' } }, ctx);

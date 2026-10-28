@@ -49,7 +49,10 @@ const MAX_TOOL_ROUNDS = 5;
 const MIN_LEAD_MINUTES = 30;
 const CALENDAR_DAYS = 14;
 
-const RESET_WORDS = new Set(['restart', 'start over', 'reset', 'menu']);
+const RESET_WORDS = new Set([
+    'restart', 'start over', 'reset', 'menu',
+    'hi', 'hii', 'hiii', 'hello', 'hey', 'hallo', 'hiya', 'howzit', 'good morning', 'good afternoon', 'good evening',
+]);
 const CANCEL_WORDS = new Set(['cancel', 'cancel booking']);
 
 export const AI_TOOLS = [
@@ -338,7 +341,9 @@ function fallbackText(ctx) {
  */
 export async function handleAiMessage(input, existingSession, ctx) {
     let session = isFresh(existingSession, ctx) ? existingSession : newAiSession(ctx);
-    const lower = input.type === 'text' ? String(input.text || '').trim().toLowerCase() : '';
+    const lower = input.type === 'text'
+        ? String(input.text || '').trim().toLowerCase().replace(/[!.,?\s]+$/, '')
+        : '';
 
     if (CANCEL_WORDS.has(lower) && session.history.length > 0 && !session.lastBooking) {
         await ctx.client.sendText(ctx.waId, cancelledText());
