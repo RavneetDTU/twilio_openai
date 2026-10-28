@@ -31,17 +31,21 @@ const TO_CONFIRM = [
 ];
 
 describe('welcome', () => {
-    it('"hi" sends the welcome with three buttons', async () => {
+    it('"hi" sends the welcome as a "Choose an option" list', async () => {
         const { ctx, client } = fakeCtx();
         const session = await run(ctx, [text('hi')]);
 
         assert.equal(session.step, STEP.WELCOME);
         const message = client.last();
-        assert.equal(message.type, 'buttons');
+        const [body, buttonText, rows, sectionTitle] = message.args;
+        assert.equal(message.type, 'list');
         assert.equal(message.to, WA_ID);
+        assert.match(body, /Welcome to Billy's Steakhouse/);
+        assert.equal(buttonText, 'Choose an option');
+        assert.equal(sectionTitle, 'What can I help with?');
         assert.deepEqual(idsOf(message), [REPLY.BOOK, REPLY.VIEW_MENU, REPLY.CONTACT]);
-        assert.deepEqual(message.args[1].map((b) => b.title), ['Book a Table', 'View Menu', 'Contact Us']);
-        assert.ok(message.args[1].every((b) => b.title.length <= 20));
+        assert.deepEqual(rows.map((r) => r.title), ['🍽️ Book a Table', '📖 View Menu', '📞 Contact Us']);
+        assert.ok(rows.every((r) => r.title.length <= 24 && r.description && r.description.length <= 72));
     });
 
     it('View Menu sends MENU_URL, Contact Us sends CONTACT_INFO', async () => {
@@ -51,7 +55,7 @@ describe('welcome', () => {
 
         await run(ctx, [reply(REPLY.CONTACT)]);
         assert.ok(client.sent.some((m) => m.type === 'text' && bodyOf(m).includes('+27 21 000 0000')));
-        assert.equal(client.last().type, 'buttons');
+        assert.equal(client.last().type, 'list');
     });
 
     it('any text with no session gets the welcome', async () => {

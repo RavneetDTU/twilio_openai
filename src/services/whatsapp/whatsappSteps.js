@@ -57,13 +57,17 @@ export function formatMoney(amount, currency) {
     return `${currencySymbol(currency)}${Number(amount || 0).toFixed(2)}`;
 }
 
+export const WELCOME_ROWS = [
+    { id: REPLY.BOOK, title: '🍽️ Book a Table', description: 'Date, time and party size' },
+    { id: REPLY.VIEW_MENU, title: '📖 View Menu', description: 'See our dishes and drinks' },
+    { id: REPLY.CONTACT, title: '📞 Contact Us', description: 'Call or message the restaurant' },
+];
+
+/** Welcome as a list: "Choose an option" opens a sheet with one row per action. */
 export function sendWelcome(ctx, intro) {
-    const body = intro || `Hello! Welcome to ${ctx.restaurant.name} 👋\n\nHow can I help you today?`;
-    return ctx.client.sendButtons(ctx.waId, body, [
-        { id: REPLY.BOOK, title: 'Book a Table' },
-        { id: REPLY.VIEW_MENU, title: 'View Menu' },
-        { id: REPLY.CONTACT, title: 'Contact Us' },
-    ]);
+    const body = intro
+        || `Hello! Welcome to ${ctx.restaurant.name} 👋\n\nI'd be happy to help you book a table. What would you like to do?`;
+    return ctx.client.sendList(ctx.waId, body, 'Choose an option', WELCOME_ROWS, 'What can I help with?');
 }
 
 export function askName(ctx, session, prefix) {
