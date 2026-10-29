@@ -331,6 +331,15 @@ async function finishBooking(ctx, session, booked) {
     };
 }
 
+/**
+ * Reasoning models (gpt-5 and later, o-series) reject `temperature`, and in
+ * Chat Completions only allow function tools with reasoning_effort 'none'.
+ */
+export function modelSettings(model) {
+    if (/^(gpt-([5-9]|\d{2,})|o\d)/i.test(String(model))) return { reasoning_effort: 'none' };
+    return { temperature: 0.6 };
+}
+
 function fallbackText(ctx) {
     const contact = ctx.config.contactInfo ? ` or reach us on ${ctx.config.contactInfo}` : '';
     return `Sorry, I'm having a little trouble on my side right now. Please try again in a minute${contact}.`;
@@ -376,9 +385,10 @@ export async function handleAiMessage(input, existingSession, ctx) {
 
     try {
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            const model = ctx.config.aiModel || DEFAULT_AI_MODEL;
             const completion = await ctx.ai.chat.completions.create({
-                model: ctx.config.aiModel || DEFAULT_AI_MODEL,
-                temperature: 0.6,
+                model,
+                ...modelSettings(model),
                 messages: [{ role: 'system', content: system }, ...history],
                 tools: AI_TOOLS,
                 tool_choice: 'auto',

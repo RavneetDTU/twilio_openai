@@ -5,6 +5,7 @@ import {
     buildSystemPrompt,
     handleAiMessage,
     inputToText,
+    modelSettings,
     runTool,
     trimHistory,
 } from '../../src/services/whatsapp/whatsappAiAgent.js';
@@ -230,6 +231,14 @@ describe('prompt and history helpers', () => {
         assert.match(prompt, /\+27 21 000 0000/);
         assert.match(prompt, /probably Thandi Mokoena/);
         assert.match(prompt, /Shall I put it under Thandi\?/);
+    });
+
+    it('modelSettings: reasoning models get reasoning_effort none, older ones temperature', () => {
+        assert.deepEqual(modelSettings('gpt-6.1-terra'), { reasoning_effort: 'none' });
+        assert.deepEqual(modelSettings('gpt-5.4-mini'), { reasoning_effort: 'none' });
+        assert.deepEqual(modelSettings('o4-mini'), { reasoning_effort: 'none' });
+        assert.deepEqual(modelSettings('gpt-4.1-mini'), { temperature: 0.6 });
+        assert.deepEqual(modelSettings('gpt-4o'), { temperature: 0.6 });
     });
 
     it('trimHistory starts at a user message', () => {
