@@ -10,7 +10,7 @@
 //            booking: { checkSlot, findAlternatives, book },
 //            contacts: { getKnownName, saveBooking } }
 //
-// Steps: welcome → name → phone → guests (→ guests_more) → date → time
+// Steps: welcome → location → preference → food → restaurant → name → phone → guests (→ guests_more) → date → time
 //        → requests → confirm → done
 // Global: "menu" / "restart" / "hi" → welcome, "cancel" → clear session.
 // =============================================================================
@@ -41,10 +41,23 @@ import {
     MAX_GUESTS,
     MAX_REQUEST_LENGTH,
     REPLY,
+    sendFoodPrompt,
+    sendLocationPrompt,
+    sendPreferencePrompt,
     sendWelcome,
     STEP,
     unsupportedText,
 } from './whatsappSteps.js';
+import {
+    beginRestaurantPick,
+    handleFoodReply,
+    handleLocationReply,
+    handlePreferenceReply,
+    handleRestaurantReply,
+    hasBookingRestaurant,
+    sendRestaurantSuggestions,
+} from './whatsappRestaurantPicker.js';
+import { HOST_RESTAURANT_ID } from './whatsappRestaurantDirectory.js';
 import { toMillis } from './whatsappSessionStore.js';
 
 const SESSION_IDLE_MS = 24 * 60 * 60 * 1000;
@@ -111,11 +124,17 @@ function today(ctx) {
 }
 
 function newSession(ctx, step, data = {}) {
-    return { step, restaurantId: ctx.restaurant.id, data };
+    const restaurantId = ctx.directory ? HOST_RESTAURANT_ID : ctx.restaurant.id;
+    return { step, restaurantId, data };
 }
 
 function isFresh(session, ctx) {
-    if (!session || session.restaurantId !== ctx.restaurant.id) return false;
+    if (!session) return false;
+    if (ctx.directory) {
+        if (session.restaurantId !== ctx.restaurant.id && session.restaurantId !== HOST_RESTAURANT_ID) return false;
+    } else if (session.restaurantId !== ctx.restaurant.id) {
+        return false;
+    }
     const updated = toMillis(session.updatedAt);
     return !updated || ctx.now.getTime() - updated <= SESSION_IDLE_MS;
 }
@@ -137,10 +156,45 @@ async function startBooking(ctx) {
         logger.warn(`⚠️ [WhatsApp] Known-name lookup failed for ${ctx.waId}: ${error.message}`);
     }
     suggestedName = suggestedName || validateName(ctx.profileName);
+    const data = suggestedName ? { suggestedName } : {};
 
-    const session = newSession(ctx, STEP.NAME, suggestedName ? { suggestedName } : {});
+    if (ctx.directory) {
+        const picking = await beginRestaurantPick(ctx, newSession(ctx, STEP.LOCATION, data));
+        if (hasBookingRestaurant(ctx, picking)) {
+            const session = { ...picking, step: STEP.NAME, data: { ...data, ...(picking.data || {}) } };
+            await askName(ctx, session);
+            return session;
+        }
+        return { ...picking, data: { ...data, ...(picking.data || {}) } };
+    }
+
+    const session = newSession(ctx, STEP.NAME, data);
     await askName(ctx, session);
     return session;
+}
+
+async function handleLocation(input, session, ctx) {
+    const next = await handleLocationReply(ctx, session, input);
+    if (hasBookingRestaurant(ctx, next) && next.step === STEP.NAME) {
+        await askName(ctx, next);
+    }
+    return next;
+}
+
+async function handlePreference(input, session, ctx) {
+    return handlePreferenceReply(ctx, session, input);
+}
+
+async function handleFood(input, session, ctx) {
+    return handleFoodReply(ctx, session, input);
+}
+
+async function handleRestaurantStep(input, session, ctx) {
+    const next = await handleRestaurantReply(ctx, session, input);
+    if (hasBookingRestaurant(ctx, next) && next.step === STEP.NAME) {
+        await askName(ctx, next);
+    }
+    return next;
 }
 
 async function goToDate(ctx, session, prefix) {
@@ -166,6 +220,16 @@ async function offerAlternatives(ctx, session, check, hm) {
 export async function reprompt(ctx, session, prefix) {
     const data = session.data || {};
     switch (session.step) {
+        case STEP.LOCATION:
+            if (session.offeredRestaurants?.length) await sendRestaurantSuggestions(ctx, session.offeredRestaurants);
+            else await sendLocationPrompt(ctx);
+            break;
+        case STEP.PREFERENCE: await sendPreferencePrompt(ctx); break;
+        case STEP.FOOD: await sendFoodPrompt(ctx); break;
+        case STEP.RESTAURANT:
+            if (session.offeredRestaurants?.length) await sendRestaurantSuggestions(ctx, session.offeredRestaurants);
+            else await sendLocationPrompt(ctx);
+            break;
         case STEP.NAME: await askName(ctx, session, prefix); break;
         case STEP.PHONE: await askPhone(ctx, prefix); break;
         case STEP.GUESTS: await askGuests(ctx, prefix); break;
@@ -390,6 +454,10 @@ async function handleConfirm(input, session, ctx) {
 }
 
 const STEP_HANDLERS = {
+    [STEP.LOCATION]: handleLocation,
+    [STEP.PREFERENCE]: handlePreference,
+    [STEP.FOOD]: handleFood,
+    [STEP.RESTAURANT]: handleRestaurantStep,
     [STEP.NAME]: handleName,
     [STEP.PHONE]: handlePhone,
     [STEP.GUESTS]: handleGuests,
@@ -421,6 +489,7 @@ export async function handleMessage(input, existingSession, ctx) {
     }
 
     if (MENU_WORDS.has(lower) || GREETINGS.has(lower)) {
+        if (ctx.directory && typeof ctx.hostRestaurant === 'function') ctx.restaurant = ctx.hostRestaurant();
         await sendWelcome(ctx);
         return newSession(ctx, STEP.WELCOME);
     }

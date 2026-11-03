@@ -40,6 +40,7 @@ export function getWhatsAppConfig() {
         menuUrl: process.env.MENU_URL || '',
         contactInfo: process.env.CONTACT_INFO || '',
         timezone: process.env.WA_TIMEZONE || '',
+        // Kept for compatibility; WhatsApp bookings no longer pin to this id.
         restaurantId: process.env.WA_RESTAURANT_ID || '',
         alsoSendSms: process.env.WA_ALSO_SEND_SMS === 'true',
         // 'ai' (default): free-text conversation. 'guided': buttons and lists.

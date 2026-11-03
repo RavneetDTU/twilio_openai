@@ -11,6 +11,10 @@ import {
 
 export const STEP = {
     WELCOME: 'welcome',
+    LOCATION: 'location',
+    PREFERENCE: 'preference',
+    FOOD: 'food',
+    RESTAURANT: 'restaurant',
     NAME: 'name',
     PHONE: 'phone',
     GUESTS: 'guests',
@@ -29,6 +33,17 @@ export const REPLY = {
     BOOK: 'menu:book',
     VIEW_MENU: 'menu:view',
     CONTACT: 'menu:contact',
+    PREF_CASUAL: 'pref:casual',
+    PREF_DATE: 'pref:date',
+    PREF_FAMILY: 'pref:family',
+    PREF_BUSINESS: 'pref:business',
+    PREF_CELEBRATION: 'pref:celebration',
+    PREF_ANY: 'pref:any',
+    FOOD_STEAK: 'food:steak',
+    FOOD_SEAFOOD: 'food:seafood',
+    FOOD_VEGETARIAN: 'food:vegetarian',
+    FOOD_WINE: 'food:wine',
+    FOOD_ANY: 'food:any',
     NAME_SUGGESTED: 'name:suggested',
     PHONE_WHATSAPP: 'phone:wa',
     GUESTS_MORE: 'guests:more',
@@ -71,6 +86,57 @@ export function welcomeText(restaurant) {
 export function sendWelcome(ctx, intro) {
     const body = intro || welcomeText(ctx.restaurant);
     return ctx.client.sendList(ctx.waId, body, 'Choose an option', WELCOME_ROWS, 'What can I help with?');
+}
+
+export const LOCATION_PROMPT = "Sure! Could you please tell me which area or location you're looking to dine in?";
+
+export function sendLocationPrompt(ctx) {
+    return ctx.client.sendText(ctx.waId, LOCATION_PROMPT);
+}
+
+export const CHOOSE_OPTION = 'Choose an option';
+
+export const PREFERENCE_PROMPT = 'What kind of evening are you after? Pick one below, or type your own.';
+export const PREFERENCE_ROWS = [
+    { id: REPLY.PREF_CASUAL, title: 'Casual meal', description: 'Relaxed, no fuss' },
+    { id: REPLY.PREF_DATE, title: 'Date night', description: 'Quiet or romantic' },
+    { id: REPLY.PREF_FAMILY, title: 'Family gathering', description: 'Kids or a group' },
+    { id: REPLY.PREF_BUSINESS, title: 'Business / work', description: 'Lunch or a meeting' },
+    { id: REPLY.PREF_CELEBRATION, title: 'Celebration', description: 'Birthday or occasion' },
+    { id: REPLY.PREF_ANY, title: 'No preference', description: 'Surprise me' },
+];
+
+export function sendPreferencePrompt(ctx) {
+    return ctx.client.sendList(ctx.waId, PREFERENCE_PROMPT, CHOOSE_OPTION, PREFERENCE_ROWS, 'Preference');
+}
+
+export const FOOD_PROMPT = 'What are you in the mood to eat? Pick one below, or type a dish or cuisine.';
+export const FOOD_ROWS = [
+    { id: REPLY.FOOD_STEAK, title: 'Steak', description: 'Grills and steakhouse' },
+    { id: REPLY.FOOD_SEAFOOD, title: 'Seafood', description: 'Fish and shellfish' },
+    { id: REPLY.FOOD_VEGETARIAN, title: 'Vegetarian', description: 'Plant-based dishes' },
+    { id: REPLY.FOOD_WINE, title: 'Wine & small plates', description: 'Wine bar, sharing' },
+    { id: REPLY.FOOD_ANY, title: 'No preference', description: 'Open to anything' },
+];
+
+export function sendFoodPrompt(ctx) {
+    return ctx.client.sendList(ctx.waId, FOOD_PROMPT, CHOOSE_OPTION, FOOD_ROWS, 'Food');
+}
+
+export function noMatchText() {
+    return "I couldn't find a restaurant in that area. Could you try a nearby neighbourhood or city?";
+}
+
+export function chooseFromListText() {
+    return 'Please choose one of the restaurants I listed, by name or number.';
+}
+
+export function noneAvailableText() {
+    return "Sorry, we don't have any restaurants available to book right now. Please try again shortly.";
+}
+
+export function selectedRestaurantText(name) {
+    return `Great — I'll book you at ${name}. What name should the booking be under, and for how many guests?`;
 }
 
 export function askName(ctx, session, prefix) {

@@ -4,7 +4,7 @@
 // =============================================================================
 // Runs after POST /webhook has already answered 200. For every inbound message:
 //   1. skip duplicates (Meta retries) by message id
-//   2. resolve the restaurant (WA_RESTAURANT_ID → phoneIndex → Billy's)
+//   2. restaurant: session pick → live tenant; otherwise Booki AI host (never Billy's)
 //   3. load the session, run the flow, save or clear the session
 // Messages from the same number are handled one at a time.
 // All dependencies are passed in, so this file has no Firestore/network imports.
@@ -14,6 +14,7 @@ import logger from '../../utils/logger.js';
 import { DEFAULT_TIMEZONE } from './whatsappConfig.js';
 import { handleAiMessage } from './whatsappAiAgent.js';
 import { handleMessage } from './whatsappHandlers.js';
+import { bookiHostRestaurant, HOST_RESTAURANT_ID, isHostRestaurantId } from './whatsappRestaurantDirectory.js';
 
 const chains = new Map();
 
@@ -62,6 +63,23 @@ export function restaurantFromTenant(tenant, config = {}) {
     };
 }
 
+async function resolveSessionRestaurant(session, metadata, deps, config) {
+    const selectedId = session?.restaurantId;
+    if (selectedId && !isHostRestaurantId(selectedId) && typeof deps.loadRestaurant === 'function') {
+        const loaded = await deps.loadRestaurant(selectedId);
+        if (loaded && !isHostRestaurantId(loaded.id)) return { restaurant: loaded, session };
+        logger.warn(`⚠️ [WhatsApp] Session restaurant ${selectedId} is not available — asking the guest to choose again`);
+        return {
+            restaurant: typeof deps.hostRestaurant === 'function' ? deps.hostRestaurant() : bookiHostRestaurant(config),
+            session: { ...session, restaurantId: HOST_RESTAURANT_ID, awaiting: 'location' },
+        };
+    }
+
+    if (typeof deps.hostRestaurant === 'function') return { restaurant: deps.hostRestaurant(), session };
+    if (typeof deps.resolveRestaurant === 'function') return { restaurant: await deps.resolveRestaurant(metadata), session };
+    return { restaurant: bookiHostRestaurant(config), session };
+}
+
 function logStatuses(statuses = []) {
     for (const status of statuses) {
         if (status?.status !== 'failed') continue;
@@ -106,17 +124,19 @@ async function processMessage(message, metadata, profileName, deps) {
     const aiMode = config.conversationMode !== 'guided' && Boolean(deps.ai);
     deps.client.markRead(message.id, { typing: aiMode });
 
-    const restaurant = await deps.resolveRestaurant(metadata);
-    if (!restaurant) {
-        logger.error(`❌ [WhatsApp] No restaurant resolved for message ${message.id}`);
-        return;
-    }
-
     let session = null;
     try {
         session = await deps.store.get(waId);
     } catch (error) {
         logger.error(`❌ [WhatsApp] Loading session for ${waId} failed: ${error.message} — starting fresh`);
+    }
+
+    const resolved = await resolveSessionRestaurant(session, metadata, deps, config);
+    session = resolved.session;
+    const restaurant = resolved.restaurant;
+    if (!restaurant) {
+        logger.error(`❌ [WhatsApp] No restaurant resolved for message ${message.id}`);
+        return;
     }
 
     const ctx = {
@@ -130,6 +150,9 @@ async function processMessage(message, metadata, profileName, deps) {
         booking: deps.booking,
         contacts: deps.contacts,
         ai: deps.ai,
+        directory: deps.directory || null,
+        loadRestaurant: deps.loadRestaurant || null,
+        hostRestaurant: deps.hostRestaurant || (() => bookiHostRestaurant(config)),
     };
 
     const state = aiMode ? 'ai' : (session?.step || 'new');

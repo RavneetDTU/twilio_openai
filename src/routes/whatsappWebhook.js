@@ -14,7 +14,7 @@ import admin, { db } from '../config/firebase.js';
 import { getAvailableCapacityForDate } from '../services/capacityService.js';
 import manualBookingService from '../services/manualBookingService.js';
 import smsService from '../services/smsService.js';
-import { getDefaultTenant, getTenantById, getTenantByPhone } from '../services/tenantService.js';
+import { getTenantById, listTenants } from '../services/tenantService.js';
 import logger from '../utils/logger.js';
 import { createAvailabilityProvider } from '../services/whatsapp/whatsappAvailability.js';
 import { createBookingAdapter } from '../services/whatsapp/whatsappBookingAdapter.js';
@@ -22,24 +22,19 @@ import whatsappClient from '../services/whatsapp/whatsappClient.js';
 import { getWhatsAppConfig } from '../services/whatsapp/whatsappConfig.js';
 import { createContactService } from '../services/whatsapp/whatsappContactService.js';
 import { processWhatsAppWebhook, restaurantFromTenant } from '../services/whatsapp/whatsappProcessor.js';
+import {
+    bookiHostRestaurant,
+    createRestaurantDirectory,
+} from '../services/whatsapp/whatsappRestaurantDirectory.js';
 import { createFirestoreSessionStore } from '../services/whatsapp/whatsappSessionStore.js';
 import { safeCompare, verifyWhatsAppSignature } from '../services/whatsapp/whatsappSignature.js';
 
 const router = express.Router();
 
-async function resolveRestaurant(metadata) {
+async function loadRestaurant(id) {
     const config = getWhatsAppConfig();
-    let tenant = null;
-
-    if (config.restaurantId) tenant = await getTenantById(config.restaurantId);
-
-    const display = String(metadata?.display_phone_number || '').replace(/\D/g, '');
-    if (!tenant && display) tenant = await getTenantByPhone(`+${display}`);
-
-    if (!tenant) {
-        logger.warn(`⚠️ [WhatsApp] No tenant for +${display || '?'} — routing to default (Billy's)`);
-        tenant = await getDefaultTenant();
-    }
+    const tenant = await getTenantById(String(id || ''));
+    if (!tenant || tenant.isActive === false) return null;
     return restaurantFromTenant(tenant, config);
 }
 
@@ -57,7 +52,9 @@ function getDeps() {
                 getConfig: getWhatsAppConfig,
             }),
             contacts: createContactService({ db, FieldValue: admin.firestore.FieldValue }),
-            resolveRestaurant,
+            directory: createRestaurantDirectory({ listTenants, getTenantById }),
+            loadRestaurant,
+            hostRestaurant: () => bookiHostRestaurant(getWhatsAppConfig()),
             getConfig: getWhatsAppConfig,
             ai: process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null,
         };

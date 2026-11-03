@@ -1,5 +1,7 @@
 // Shared fakes for the WhatsApp tests. No Firestore, no network.
 
+import { bookiHostRestaurant, matchRestaurants } from '../../src/services/whatsapp/whatsappRestaurantDirectory.js';
+
 export const WA_ID = '27821234567';
 
 // 10:00 in Johannesburg on Tue 27 Oct 2026
@@ -41,6 +43,47 @@ export function idsOf(message) {
     if (message?.type === 'buttons') return message.args[1].map((b) => b.id);
     if (message?.type === 'list') return message.args[2].map((r) => r.id);
     return [];
+}
+
+export const DIRECTORY = [
+    { id: '1', name: "Billy's Steakhouse", area: 'Cape Town', address: 'V&A Waterfront', province: 'Western Cape', postalCode: '8001', description: 'Steakhouse', phone: '+27210000001' },
+    { id: '2', name: "Ryan's Restaurant", area: 'Stellenbosch', address: '12 Church Street', province: 'Western Cape', postalCode: '7600', description: 'Wine bar', phone: '+27210000002' },
+    { id: '3', name: "Bjorn's Steakhouse", area: 'Cape Town', address: '12 Long Street', province: 'Western Cape', postalCode: '8000', description: 'Steakhouse', phone: '+27210000003' },
+    { id: '4', name: 'La Petite Maison', area: 'Franschhoek', address: '1 Huguenot Street', province: 'Western Cape', postalCode: '7690', description: '', phone: '+27210000004' },
+    { id: '5', name: 'The Test Kitchen', area: 'Cape Town', address: '375 Albert Road, Woodstock', province: 'Western Cape', postalCode: '7925', description: '', phone: '+27210000005' },
+];
+
+export function fakeDirectory(entries = DIRECTORY) {
+    return {
+        async list() { return entries; },
+        async getById(id) { return entries.find((entry) => entry.id === String(id)) || null; },
+        async suggest(location) { return matchRestaurants(entries, location); },
+    };
+}
+
+export function fakeLoadRestaurant(entries = DIRECTORY) {
+    return async (id) => {
+        const entry = entries.find((row) => row.id === String(id));
+        if (!entry) return null;
+        return {
+            id: entry.id,
+            name: entry.name,
+            timezone: 'Africa/Johannesburg',
+            currency: 'ZAR',
+            depositAmount: 50,
+            operatingHours: null,
+        };
+    };
+}
+
+export function pickerOverrides(entries = DIRECTORY) {
+    const host = bookiHostRestaurant({ timezone: 'Africa/Johannesburg' });
+    return {
+        restaurant: host,
+        directory: fakeDirectory(entries),
+        loadRestaurant: fakeLoadRestaurant(entries),
+        hostRestaurant: () => host,
+    };
 }
 
 export function fakeCtx(overrides = {}) {

@@ -30,12 +30,33 @@ import {
     todayInTz,
 } from './whatsappDateTime.js';
 import { normalisePhoneInput, validateName, validateRequests } from './whatsappHandlers.js';
+import {
+    HOST_RESTAURANT_ID,
+    isHostRestaurantId,
+    suggestionText,
+} from './whatsappRestaurantDirectory.js';
+import {
+    beginRestaurantPick,
+    coveragePromptForHistory,
+    foodPromptForHistory,
+    handleFoodReply,
+    handleLocationReply,
+    handlePreferenceReply,
+    handleRestaurantReply,
+    hasBookingRestaurant,
+    isBookIntent,
+    locationPromptForHistory,
+    preferencePromptForHistory,
+} from './whatsappRestaurantPicker.js';
 import { toMillis } from './whatsappSessionStore.js';
 import {
     cancelledText,
+    chooseFromListText,
     confirmationText,
     formatMoney,
     MAX_GUESTS,
+    noMatchText,
+    selectedRestaurantText,
     sendWelcome,
     WELCOME_ROWS,
     welcomeText,
@@ -54,6 +75,35 @@ const RESET_WORDS = new Set([
     'hi', 'hii', 'hiii', 'hello', 'hey', 'hallo', 'hiya', 'howzit', 'good morning', 'good afternoon', 'good evening',
 ]);
 const CANCEL_WORDS = new Set(['cancel', 'cancel booking']);
+
+export const PICK_TOOLS = [
+    {
+        type: 'function',
+        function: {
+            name: 'find_restaurants',
+            description: 'Finds restaurants in an area the guest named. Call when they say a neighbourhood, city or area and have not picked a restaurant yet. After this, the system asks preference and food interest, then shows a Choose an option list.',
+            parameters: {
+                type: 'object',
+                properties: { location: { type: 'string', description: 'Area, neighbourhood or city' } },
+                required: ['location'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'select_restaurant',
+            description: 'Locks in a restaurant from the list just shown. restaurant_id must be one of those ids.',
+            parameters: {
+                type: 'object',
+                properties: { restaurant_id: { type: 'string' } },
+                required: ['restaurant_id'],
+                additionalProperties: false,
+            },
+        },
+    },
+];
 
 export const AI_TOOLS = [
     {
@@ -127,7 +177,9 @@ export function buildSystemPrompt({ restaurant, config, waId, knownName, now }) 
     const clock = formatTime12(`${String(Math.floor(nowHm / 60)).padStart(2, '0')}:${String(nowHm % 60).padStart(2, '0')}`);
     const deposit = Number(restaurant.depositAmount) || 0;
 
-    return `You are the WhatsApp host for ${restaurant.name}. You chat with guests the way a friendly, experienced member of the front-of-house team would: warm, natural and efficient. You are not a menu bot.
+    const selected = restaurant && !isHostRestaurantId(restaurant.id);
+
+    return `You are the WhatsApp host for ${selected ? restaurant.name : 'Booki AI'}. You chat with guests the way a friendly, experienced member of the front-of-house team would: warm, natural and efficient. You are not a menu bot.
 
 How you write
 - Short WhatsApp messages: usually 1–3 sentences. Ask only one question per message.
@@ -146,7 +198,14 @@ ${calendarLines(today)}
 - Contact details: ${config.contactInfo || 'not provided'}.
 - The guest's WhatsApp number is +${waId}.${knownName ? `\n- Their name is probably ${knownName} (from an earlier booking or their WhatsApp profile). When you need the name, offer it, e.g. "Shall I put it under ${knownName.split(' ')[0]}?", instead of asking from scratch.` : ''}
 
-Taking a booking
+${selected ? `Taking a booking at ${restaurant.name}` : `Choosing a restaurant
+- The guest has not picked a restaurant yet. Do not guess one and never use a default restaurant.
+- If they have not said an area, ask: "${locationPromptForHistory()}"
+- Once they name an area, call find_restaurants. The system then asks preference and food interest, then shows a Choose an option list of matching restaurants. Call select_restaurant only with an id from that list.
+- If they do not name a known area, the system shows the areas and restaurants we actually have. Do not invent cities or restaurants.
+- Do not call get_available_times, check_availability or create_booking until a restaurant is selected.
+
+Taking a booking`}
 - You need: name, number of guests, date and time. Use their WhatsApp number as the contact number unless they give another. Ask once, lightly, about allergies or a special occasion.
 - Collect details conversationally. If they give several at once, take them all; don't re-ask.
 - Once you know the date, you may call get_available_times to suggest times.
@@ -175,13 +234,97 @@ export function inputToText(input) {
 }
 
 function newAiSession(ctx) {
-    return { mode: 'ai', restaurantId: ctx.restaurant.id, history: [] };
+    return {
+        mode: 'ai',
+        restaurantId: ctx.directory ? HOST_RESTAURANT_ID : ctx.restaurant.id,
+        history: [],
+        awaiting: null,
+        offeredRestaurants: [],
+    };
 }
 
 function isFresh(session, ctx) {
-    if (!session || session.mode !== 'ai' || session.restaurantId !== ctx.restaurant.id) return false;
+    if (!session || session.mode !== 'ai') return false;
+    if (ctx.directory) {
+        if (session.restaurantId !== ctx.restaurant.id && session.restaurantId !== HOST_RESTAURANT_ID) return false;
+    } else if (session.restaurantId !== ctx.restaurant.id) {
+        return false;
+    }
     const updated = toMillis(session.updatedAt);
     return !updated || ctx.now.getTime() - updated <= SESSION_IDLE_MS;
+}
+
+function toolsFor(ctx, session) {
+    if (ctx.directory && !hasBookingRestaurant(ctx, session)) return [...PICK_TOOLS, ...AI_TOOLS];
+    return AI_TOOLS;
+}
+
+function remember(session, input, assistantText) {
+    return {
+        ...session,
+        history: [
+            ...(session.history || []),
+            { role: 'user', content: inputToText(input) || '(empty message)' },
+            { role: 'assistant', content: assistantText },
+        ],
+    };
+}
+
+function leftoverLocation(input) {
+    if (input?.type !== 'text') return '';
+    const stripped = String(input.text || '')
+        .replace(/\b(hi|hello|please|i want to|i'd like to|id like to|can i|book( a)? table|a table|book|reservation|table)\b/gi, ' ')
+        .replace(/[!.,?]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return stripped.length >= 2 ? stripped : '';
+}
+
+async function handleRestaurantSelectionTurn(input, session, ctx) {
+    if (session.awaiting === 'restaurant') {
+        const next = await handleRestaurantReply(ctx, session, input);
+        return remember(next, input, hasBookingRestaurant(ctx, next)
+            ? selectedRestaurantText(ctx.restaurant.name)
+            : chooseFromListText());
+    }
+
+    if (session.awaiting === 'food') {
+        const next = await handleFoodReply(ctx, session, input);
+        return remember(next, input, next.awaiting === 'restaurant'
+            ? suggestionText(next.offeredRestaurants)
+            : noMatchText());
+    }
+
+    if (session.awaiting === 'preference') {
+        const next = await handlePreferenceReply(ctx, session, input);
+        return remember(next, input, foodPromptForHistory());
+    }
+
+    if (session.awaiting === 'location') {
+        const next = await handleLocationReply(ctx, session, input);
+        return remember(next, input, next.awaiting === 'preference'
+            ? preferencePromptForHistory()
+            : hasBookingRestaurant(ctx, next)
+                ? selectedRestaurantText(ctx.restaurant.name)
+                : coveragePromptForHistory(next));
+    }
+
+    if (!hasBookingRestaurant(ctx, session) && isBookIntent(input)) {
+        const extra = leftoverLocation(input);
+        if (extra) {
+            const next = await handleLocationReply(ctx, session, extra);
+            return remember(next, input, next.awaiting === 'preference'
+                ? preferencePromptForHistory()
+                : coveragePromptForHistory(next));
+        }
+        const next = await beginRestaurantPick(ctx, session);
+        if (hasBookingRestaurant(ctx, next)) {
+            return remember(next, input, selectedRestaurantText(ctx.restaurant.name));
+        }
+        return remember(next, input, locationPromptForHistory());
+    }
+
+    return null;
 }
 
 // ── Tool execution ───────────────────────────────────────────────────────────
@@ -234,6 +377,45 @@ function unavailablePayload(check, alternatives) {
  * @returns {Promise<{result: Object, booked?: Object}>}
  */
 export async function runTool(name, args, ctx, session) {
+    if (name === 'find_restaurants') {
+        if (!ctx.directory) return { result: { error: 'Restaurant search is not available.' } };
+        const location = String(args.location || '').trim();
+        if (!location) return { result: { error: 'Please ask which area they want to dine in.' } };
+        const next = await handleLocationReply(ctx, session, location);
+        if (!next.locationMatches?.length) {
+            return {
+                result: {
+                    matches: [],
+                    unmatched: true,
+                    areas: (next.coveragePrompt || '').match(/^• .+$/gm) || [],
+                    note: 'The guest was shown available areas and restaurants. Ask them to pick one. Do not invent a location.',
+                },
+                sessionPatch: next,
+            };
+        }
+        return {
+            result: {
+                area: next.locationQuery,
+                candidates: next.locationMatches.length,
+                note: 'Ask what kind of evening they want, then what they feel like eating. Do not list restaurants until those answers are in.',
+            },
+            sessionPatch: next,
+        };
+    }
+
+    if (name === 'select_restaurant') {
+        if (!ctx.directory) return { result: { error: 'Restaurant selection is not available.' } };
+        const next = await handleRestaurantReply(ctx, session, { type: 'reply', id: `rest:${args.restaurant_id}` });
+        if (!hasBookingRestaurant(ctx, next)) {
+            return { result: { error: 'That restaurant is not in the list just shown. Ask them to pick by name or number.' }, sessionPatch: next };
+        }
+        return { result: { selected: true, restaurant_id: next.restaurantId, name: ctx.restaurant.name }, sessionPatch: next };
+    }
+
+    if (ctx.directory && !hasBookingRestaurant(ctx, session) && isHostRestaurantId(ctx.restaurant?.id)) {
+        return { result: { error: 'A restaurant must be selected first. Ask for their area, call find_restaurants, then select_restaurant.' } };
+    }
+
     const tz = timezoneOf(ctx.restaurant);
     const today = todayInTz(tz, ctx.now);
 
@@ -358,7 +540,10 @@ export async function handleAiMessage(input, existingSession, ctx) {
         await ctx.client.sendText(ctx.waId, cancelledText());
         return null;
     }
-    if (RESET_WORDS.has(lower)) session = newAiSession(ctx);
+    if (RESET_WORDS.has(lower)) {
+        session = newAiSession(ctx);
+        if (ctx.directory && typeof ctx.hostRestaurant === 'function') ctx.restaurant = ctx.hostRestaurant();
+    }
 
     if (!session.history || session.history.length === 0) {
         await sendWelcome(ctx);
@@ -369,6 +554,11 @@ export async function handleAiMessage(input, existingSession, ctx) {
                 { role: 'assistant', content: `${welcomeText(ctx.restaurant)}\n[Options shown: ${WELCOME_ROWS.map((r) => r.title).join(', ')}]` },
             ],
         };
+    }
+
+    if (ctx.directory) {
+        const picked = await handleRestaurantSelectionTurn(input, session, ctx);
+        if (picked) return picked;
     }
 
     let knownName = null;
@@ -390,7 +580,7 @@ export async function handleAiMessage(input, existingSession, ctx) {
                 model,
                 ...modelSettings(model),
                 messages: [{ role: 'system', content: system }, ...history],
-                tools: AI_TOOLS,
+                tools: toolsFor(ctx, session),
                 tool_choice: 'auto',
             });
             const message = completion.choices?.[0]?.message;
@@ -408,6 +598,7 @@ export async function handleAiMessage(input, existingSession, ctx) {
 
             history.push({ role: 'assistant', content: message.content || null, tool_calls: toolCalls });
             let bookedNow = null;
+            let pickerDone = false;
             for (const call of toolCalls) {
                 let args = {};
                 try {
@@ -416,16 +607,21 @@ export async function handleAiMessage(input, existingSession, ctx) {
                     args = {};
                 }
                 logger.info(`🛠️ [WhatsApp AI] ${ctx.waId} → ${call.function?.name} ${JSON.stringify(args)}`);
-                const { result, booked } = await runTool(call.function?.name, args, ctx, { ...session, lastBooking });
+                const { result, booked, sessionPatch } = await runTool(call.function?.name, args, ctx, { ...session, lastBooking });
+                if (sessionPatch) session = { ...session, ...sessionPatch };
                 if (booked) {
                     lastBooking = await finishBooking(ctx, session, booked);
                     bookedNow = booked;
                 }
+                if (call.function?.name === 'find_restaurants' || call.function?.name === 'select_restaurant') pickerDone = true;
                 history.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
             }
 
             if (bookedNow) {
                 history.push({ role: 'assistant', content: '(Confirmation and payment details were sent to the guest.)' });
+                return { ...session, history: trimHistory(history), lastBooking };
+            }
+            if (pickerDone) {
                 return { ...session, history: trimHistory(history), lastBooking };
             }
         }
