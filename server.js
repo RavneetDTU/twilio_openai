@@ -22,6 +22,7 @@ import refundRoutes from './src/routes/refund.js';
 import smsRoutes from './src/routes/sms.js';
 import verifyRoutes from './src/routes/verify.js';
 import internalRoutes from './src/routes/internal.js';
+import whatsappWebhookRoutes from './src/routes/whatsappWebhook.js';
 import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services/callService.js';
 import { rejectOpenAICall } from './src/services/openaiCallsService.js';
 import { activeSipSessions } from './src/services/realtimeSipSession.js';
@@ -60,6 +61,11 @@ app.use('/webhooks/openai', express.json({
     limit: '2mb',
     verify: (req, res, buf) => { req.rawBody = buf; }
 }), openaiWebhookRoutes);
+
+// WhatsApp Cloud API webhook (WHATSAPP_ENABLED=true only) — raw body for X-Hub-Signature-256.
+if (process.env.WHATSAPP_ENABLED === 'true') {
+    app.use('/webhook', express.json({ limit: '2mb', verify: (req, res, buf) => { req.rawBody = buf; } }), whatsappWebhookRoutes);
+}
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());

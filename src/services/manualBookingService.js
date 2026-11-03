@@ -12,9 +12,14 @@ class ManualBookingService {
      * Creates a manual booking, saves it to Firestore, and sends an SMS payment link.
      * @param {string} restaurantId 
      * @param {Object} bookingData - Contains name, phoneNo, guests, date, time, allergy, notes
+     * @param {Object} [options] - Optional, used by the WhatsApp channel. Omitted = unchanged behaviour.
+     * @param {string} [options.source] - Sent to the reservation API as `source`
+     * @param {number|string} [options.sittingId] - Sent to the reservation API as `sitting_id`
+     * @param {boolean} [options.skipSms] - Do not send the SMS payment link (smsStatus 'Skipped')
+     * @param {Object} [options.extraFields] - Extra fields saved on the manualBookings doc
      * @returns {Promise<Object>} Response object containing success, paymentId, and SMS details
      */
-    async createManualBooking(restaurantId, bookingData) {
+    async createManualBooking(restaurantId, bookingData, options = {}) {
         const { name, phoneNo, guests, date, time, allergy, notes } = bookingData;
 
         if (!name || !phoneNo || !guests) {
@@ -65,7 +70,8 @@ class ManualBookingService {
             bookingAmount,
             paymentStatus: 'Pending',
             smsStatus: 'Pending',
-            createdAt: new Date()
+            createdAt: new Date(),
+            ...(options.extraFields || {})
         };
 
         // 4. Save to DB first
@@ -85,7 +91,9 @@ class ManualBookingService {
                 party_size: Number(guests) || 0,
                 allergies: allergy || 'N/A',
                 notes: notes || 'N/A',
-                transcription: 'Manually Created' // Manual booking has no transcription
+                transcription: 'Manually Created', // Manual booking has no transcription
+                ...(options.source ? { source: options.source } : {}),
+                ...(options.sittingId != null ? { sitting_id: options.sittingId } : {})
             };
 
             logger.info(`📡 Sending manual reservation to API: ${url}`);
@@ -109,14 +117,16 @@ class ManualBookingService {
         logger.info(`📱 Sending manual booking SMS for payment ID: ${paymentId}...`);
         
         const bookingDataForSms = { ...manualBookingData };
-        const smsResult = await smsService.sendAutomatedSms(
-            bookingDataForSms,
-            paymentId,
-            restaurantName
-        );
+        const smsResult = options.skipSms
+            ? { success: false, skipped: true, error: 'Skipped: payment link sent on WhatsApp' }
+            : await smsService.sendAutomatedSms(
+                bookingDataForSms,
+                paymentId,
+                restaurantName
+            );
 
         // 6. Update DB with SMS result
-        const smsStatus = smsResult.success ? 'Success' : 'Failed';
+        const smsStatus = smsResult.skipped ? 'Skipped' : (smsResult.success ? 'Success' : 'Failed');
         await docRef.update({
             smsStatus,
             smsDetails: {
