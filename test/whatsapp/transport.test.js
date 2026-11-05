@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { describe, it } from 'node:test';
 
-import { windowsFromApi, windowsFromTenant } from '../../src/services/whatsapp/whatsappAvailability.js';
+import { createAvailabilityProvider, evaluateHoursForTime, windowsFromApi, windowsFromTenant } from '../../src/services/whatsapp/whatsappAvailability.js';
 import { clampButtons, clampListRows, createWhatsAppClient } from '../../src/services/whatsapp/whatsappClient.js';
 import { parseIncomingMessage, processWhatsAppWebhook } from '../../src/services/whatsapp/whatsappProcessor.js';
 import { createMemorySessionStore } from '../../src/services/whatsapp/whatsappSessionStore.js';
@@ -222,5 +222,27 @@ describe('opening hours for the time list', () => {
             { closed: false, windows: [{ open: '12:00', close: '23:00' }] }
         );
         assert.deepEqual(windowsFromTenant({ Friday: { open: 'Closed', close: 'Closed' } }, '2026-10-30'), { closed: true, reason: null });
+    });
+
+    it('sheet restaurants use tenant hours and do not call Mybooki', async () => {
+        const fetches = [];
+        const availability = createAvailabilityProvider({
+            fetchImpl: async (url) => {
+                fetches.push(url);
+                throw new Error(`Mybooki should not be called: ${url}`);
+            },
+        });
+        const restaurant = {
+            id: 's_abc123',
+            operatingHours: { Friday: { open: '8:00 AM', close: '9:00 PM' } },
+        };
+        const slots = await availability.getDaySlots(restaurant, '2026-10-30', { today: '2026-10-29', minutesNow: 0 });
+        assert.equal(fetches.length, 0);
+        assert.equal(slots.closed, false);
+        assert.ok(slots.times.length > 0);
+        assert.equal(slots.times[0], '08:00');
+        assert.equal(slots.times.at(-1), '20:00');
+        assert.deepEqual(evaluateHoursForTime(restaurant.operatingHours, '2026-10-30', '19:00'), { ok: true, sittingId: null });
+        assert.equal(evaluateHoursForTime(restaurant.operatingHours, '2026-10-30', '22:00').ok, false);
     });
 });

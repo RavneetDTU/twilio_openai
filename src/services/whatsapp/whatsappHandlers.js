@@ -55,8 +55,10 @@ import {
     handlePreferenceReply,
     handleRestaurantReply,
     hasBookingRestaurant,
+    isBookIntent,
     sendRestaurantSuggestions,
 } from './whatsappRestaurantPicker.js';
+import { applyExtract, extractBookingDetails, isCompoundExtract, isGreetingOnly } from './whatsappExtract.js';
 import { HOST_RESTAURANT_ID } from './whatsappRestaurantDirectory.js';
 import { toMillis } from './whatsappSessionStore.js';
 
@@ -206,7 +208,7 @@ async function goToDate(ctx, session, prefix) {
 async function offerAlternatives(ctx, session, check, hm) {
     const { date, guests, offeredTimes = [] } = session.data;
     const message = unavailableText(check, hm, guests);
-    const alternatives = await ctx.booking.findAlternatives(ctx.restaurant.id, date, hm, guests, offeredTimes);
+    const alternatives = await ctx.booking.findAlternatives(ctx.restaurant.id, date, hm, guests, offeredTimes, ctx.restaurant);
 
     if (alternatives.length > 0) {
         await askTime(ctx, date, alternatives, `${message}\n\nThese times are available:`);
@@ -261,14 +263,21 @@ async function handleMenuChoice(id, ctx) {
             ? `You can reach ${ctx.restaurant.name} here:\n${contactInfo}`
             : `Please contact ${ctx.restaurant.name} directly.`);
     }
-    await sendWelcome(ctx, 'Anything else I can help with?');
+    await ctx.client.sendText(ctx.waId, 'Anything else I can help with?');
     return newSession(ctx, STEP.WELCOME);
 }
 
 async function handleName(input, session, ctx) {
     let name = null;
     if (input.type === 'reply' && input.id === REPLY.NAME_SUGGESTED) name = session.data.suggestedName || null;
-    if (input.type === 'text') name = validateName(input.text);
+    if (input.type === 'text') {
+        const typed = String(input.text || '').trim();
+        if (session.data.suggestedName && /^(yes|yeah|yep|ok|okay|sure|that's me|thats me|use that|use it)$/i.test(typed)) {
+            name = session.data.suggestedName;
+        } else {
+            name = validateName(input.text);
+        }
+    }
 
     if (!name) {
         await askName(ctx, session, 'Please send the name for the booking, using letters only (e.g. Thandi Mokoena).');
@@ -281,14 +290,23 @@ async function handleName(input, session, ctx) {
 async function handlePhone(input, session, ctx) {
     let phone = null;
     if (input.type === 'reply' && input.id === REPLY.PHONE_WHATSAPP) phone = `+${ctx.waId}`;
-    if (input.type === 'text') phone = normalisePhoneInput(input.text, ctx.waId);
+    if (input.type === 'text') {
+        const typed = String(input.text || '').trim();
+        if (/^(yes|yeah|yep|ok|okay|sure|this number|use (this|that|it|my number)|whatsapp)$/i.test(typed)) {
+            phone = `+${ctx.waId}`;
+        } else {
+            phone = normalisePhoneInput(input.text, ctx.waId);
+        }
+    }
 
     if (!phone) {
         await askPhone(ctx, "That doesn't look like a valid phone number. Please include the full number, e.g. 082 123 4567 or +27 82 123 4567.");
         return session;
     }
+    const next = { ...session, data: { ...session.data, phone } };
+    if (next.data.guests) return acceptGuests(next.data.guests, next, ctx, STEP.GUESTS);
     await askGuests(ctx);
-    return { ...session, step: STEP.GUESTS, data: { ...session.data, phone } };
+    return { ...next, step: STEP.GUESTS };
 }
 
 async function acceptGuests(guests, session, ctx, retryStep) {
@@ -368,7 +386,11 @@ async function handleTime(input, session, ctx) {
 
     let hm = null;
     if (input.type === 'reply' && /^time:\d{2}:\d{2}$/.test(input.id)) hm = input.id.slice(5);
-    if (input.type === 'text') hm = parseTimeInput(input.text);
+    if (input.type === 'text') {
+        hm = parseTimeInput(input.text);
+        const index = Number(String(input.text || '').trim());
+        if (!hm && Number.isInteger(index) && offeredTimes[index - 1]) hm = offeredTimes[index - 1];
+    }
 
     if (!hm) {
         await askTime(ctx, date, offeredTimes, "Sorry, I couldn't read that time.");
@@ -379,7 +401,7 @@ async function handleTime(input, session, ctx) {
         return session;
     }
 
-    const check = await ctx.booking.checkSlot(ctx.restaurant.id, date, hm, guests);
+    const check = await ctx.booking.checkSlot(ctx.restaurant.id, date, hm, guests, ctx.restaurant);
     if (!check.ok) return offerAlternatives(ctx, session, check, hm);
 
     await askRequests(ctx);
@@ -389,7 +411,10 @@ async function handleTime(input, session, ctx) {
 async function handleRequests(input, session, ctx) {
     let requests = null;
     if (input.type === 'reply' && input.id === REPLY.NO_REQUESTS) requests = '';
-    if (input.type === 'text') requests = validateRequests(input.text);
+    if (input.type === 'text') {
+        const typed = String(input.text || '').trim();
+        requests = /^(no|none|nope|n\/a|nothing|no requests?)$/i.test(typed) ? '' : validateRequests(input.text);
+    }
 
     if (requests === null) {
         await askRequests(ctx, `Please type your requests in one message (up to ${MAX_REQUEST_LENGTH} characters), or tap No requests.`);
@@ -488,7 +513,7 @@ export async function handleMessage(input, existingSession, ctx) {
         return null;
     }
 
-    if (MENU_WORDS.has(lower) || GREETINGS.has(lower)) {
+    if (MENU_WORDS.has(lower)) {
         if (ctx.directory && typeof ctx.hostRestaurant === 'function') ctx.restaurant = ctx.hostRestaurant();
         await sendWelcome(ctx);
         return newSession(ctx, STEP.WELCOME);
@@ -498,10 +523,39 @@ export async function handleMessage(input, existingSession, ctx) {
         return handleMenuChoice(input.id, ctx);
     }
 
-    const handler = STEP_HANDLERS[session.step];
-    if (!handler) {
-        await sendWelcome(ctx, session.step === STEP.DONE ? 'Anything else I can help with?' : undefined);
+    let current = session;
+    if (input.type === 'text') {
+        const extracted = extractBookingDetails(input.text, { today: today(ctx) });
+        if (extracted.correction || isCompoundExtract(extracted) || current.step === STEP.WELCOME || current.step === STEP.LOCATION) {
+            current = applyExtract(current, extracted);
+        }
+        if (current.lastCorrection === 'guests' && current.data.guests) {
+            await ctx.client.sendText(ctx.waId, `Of course, I've updated that to ${current.data.guests} guests.`);
+            current = { ...current, lastCorrection: null };
+            if (STEP_HANDLERS[current.step] && current.step !== STEP.GUESTS && current.step !== STEP.GUESTS_MORE) {
+                return current;
+            }
+        }
+    }
+
+    if (isGreetingOnly(input.type === 'text' ? input.text : '') && STEP_HANDLERS[current.step]) {
+        await ctx.client.sendText(ctx.waId, 'Hi again — shall we continue where we left off?');
+        return current;
+    }
+
+    if (current.step === STEP.WELCOME || !STEP_HANDLERS[current.step]) {
+        if (isBookIntent(input) || GREETINGS.has(lower) || current.locationQuery || current.data?.guests) {
+            if (ctx.directory) return startBooking(ctx);
+            if (isBookIntent(input) || current.data?.guests) return startBooking(ctx);
+        }
+        if (current.step === STEP.DONE) {
+            await ctx.client.sendText(ctx.waId, 'Happy to help with another booking whenever you are ready. Just tell me the area.');
+            return newSession(ctx, STEP.WELCOME);
+        }
+        await sendWelcome(ctx);
         return newSession(ctx, STEP.WELCOME);
     }
-    return handler(input, session, ctx);
+
+    const handler = STEP_HANDLERS[current.step];
+    return handler(input, current, ctx);
 }

@@ -13,6 +13,7 @@
 // =============================================================================
 
 import logger from '../utils/logger.js';
+import { isSheetImportedRestaurantId } from './sheetRestaurantIds.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 const REQUEST_TIMEOUT_MS = 4000;
@@ -105,6 +106,7 @@ export async function checkRestaurantAvailability(restaurantId, dateStr, rawTime
 
     const dayName = dateStr ? dayNameFor(dateStr) : null;
     if (!restaurantId || !dayName) return allow;
+    if (isSheetImportedRestaurantId(restaurantId)) return allow;
 
     const time = normaliseTime(rawTime);
     const base = `${RESERVATION_API_BASE}/${restaurantId}`;

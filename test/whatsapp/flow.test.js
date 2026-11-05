@@ -31,21 +31,17 @@ const TO_CONFIRM = [
 ];
 
 describe('welcome', () => {
-    it('"hi" sends the welcome as a "Choose an option" list', async () => {
+    it('"hi" sends one welcome as ordinary text', async () => {
         const { ctx, client } = fakeCtx();
         const session = await run(ctx, [text('hi')]);
 
         assert.equal(session.step, STEP.WELCOME);
         const message = client.last();
-        const [body, buttonText, rows, sectionTitle] = message.args;
-        assert.equal(message.type, 'list');
+        assert.equal(message.type, 'text');
         assert.equal(message.to, WA_ID);
-        assert.match(body, /Welcome to Billy's Steakhouse/);
-        assert.equal(buttonText, 'Choose an option');
-        assert.equal(sectionTitle, 'What can I help with?');
-        assert.deepEqual(idsOf(message), [REPLY.BOOK, REPLY.VIEW_MENU, REPLY.CONTACT]);
-        assert.deepEqual(rows.map((r) => r.title), ['🍽️ Book a Table', '📖 View Menu', '📞 Contact Us']);
-        assert.ok(rows.every((r) => r.title.length <= 24 && r.description && r.description.length <= 72));
+        assert.match(bodyOf(message), /welcome to Billy's Steakhouse/i);
+        assert.doesNotMatch(bodyOf(message), /Choose an option/);
+        assert.equal(client.sent.length, 1);
     });
 
     it('View Menu sends MENU_URL, Contact Us sends CONTACT_INFO', async () => {
@@ -55,14 +51,15 @@ describe('welcome', () => {
 
         await run(ctx, [reply(REPLY.CONTACT)]);
         assert.ok(client.sent.some((m) => m.type === 'text' && bodyOf(m).includes('+27 21 000 0000')));
-        assert.equal(client.last().type, 'list');
+        assert.equal(client.last().type, 'text');
     });
 
     it('any text with no session gets the welcome', async () => {
         const { ctx, client } = fakeCtx();
         const session = await run(ctx, [text('do you have parking?')]);
         assert.equal(session.step, STEP.WELCOME);
-        assert.deepEqual(idsOf(client.last()), [REPLY.BOOK, REPLY.VIEW_MENU, REPLY.CONTACT]);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /welcome to Billy's Steakhouse/i);
     });
 });
 
@@ -139,15 +136,15 @@ describe('happy path', () => {
         assert.match(bodyOf(client.last()), /look forward/);
     });
 
-    it('offers a known name (WhatsApp profile or earlier booking) as a button', async () => {
+    it('offers a known name in the question and accepts yes', async () => {
         const { ctx, client } = fakeCtx({ profileName: null });
         ctx.contacts.getKnownName = async () => 'Sipho Dlamini';
         const session = await run(ctx, [text('hi'), reply(REPLY.BOOK)]);
         assert.equal(session.step, STEP.NAME);
-        assert.deepEqual(idsOf(client.last()), [REPLY.NAME_SUGGESTED]);
-        assert.ok(client.last().args[1][0].title.startsWith('Use Sipho'));
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /Sipho Dlamini/);
 
-        const next = await run(ctx, [reply(REPLY.NAME_SUGGESTED)], session);
+        const next = await run(ctx, [text('yes')], session);
         assert.equal(next.data.name, 'Sipho Dlamini');
         assert.equal(next.step, STEP.PHONE);
     });
@@ -222,10 +219,11 @@ describe('availability', () => {
         assert.deepEqual(session.data.offeredTimes, ['18:00', '19:00']);
         assert.equal(session.data.time, null);
         const offer = client.last();
-        assert.equal(offer.type, 'list');
-        assert.deepEqual(idsOf(offer), ['time:18:00', 'time:19:00', REPLY.OTHER_DATE]);
+        assert.equal(offer.type, 'text');
         assert.match(bodyOf(offer), /fully booked/);
         assert.match(bodyOf(offer), /Only 2 seats are left/);
+        assert.match(bodyOf(offer), /6:00 PM/);
+        assert.match(bodyOf(offer), /7:00 PM/);
     });
 
     it('no alternatives sends the guest back to choose a date', async () => {
@@ -242,7 +240,8 @@ describe('availability', () => {
         const atConfirm = await run(ctx, TO_CONFIRM);
         const session = await run(ctx, [reply(REPLY.CONFIRM)], atConfirm);
         assert.equal(session.step, STEP.TIME);
-        assert.deepEqual(idsOf(client.last()), ['time:18:00', 'time:19:00', REPLY.OTHER_DATE]);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /6:00 PM/);
     });
 
     it('a booking error keeps the summary so the guest can retry', async () => {
@@ -271,7 +270,8 @@ describe('global commands and edge cases', () => {
             const session = await run(ctx, [...TO_CONFIRM.slice(0, 5), text(word)]);
             assert.equal(session.step, STEP.WELCOME);
             assert.deepEqual(session.data, {});
-            assert.deepEqual(idsOf(client.last()), [REPLY.BOOK, REPLY.VIEW_MENU, REPLY.CONTACT]);
+            assert.equal(client.last().type, 'text');
+            assert.match(bodyOf(client.last()), /welcome to Billy's Steakhouse/i);
         }
     });
 
@@ -291,7 +291,7 @@ describe('global commands and edge cases', () => {
         const after = await run(ctx, [{ type: 'unsupported', kind: 'image' }], before);
         assert.equal(after.step, STEP.GUESTS);
         assert.match(bodyOf(client.last()), /only read text/);
-        assert.equal(client.last().type, 'list');
+        assert.equal(client.last().type, 'text');
     });
 
     it('a stale button from an old message re-asks the current step', async () => {

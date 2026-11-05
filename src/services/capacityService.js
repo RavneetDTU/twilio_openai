@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { isSheetImportedRestaurantId } from './sheetRestaurantIds.js';
 import { normaliseTime } from './restaurantAvailabilityService.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
@@ -105,6 +106,11 @@ export async function getAvailableCapacityForDate(_settings, restaurantId, dateS
     if (!restaurantId || !dateStr || !time) {
         logger.info(`📊 [Capacity] ${restaurantId} ${dateStr} → time missing, not a sitting check`);
         return { ...base, needsTime: true };
+    }
+
+    if (isSheetImportedRestaurantId(restaurantId)) {
+        logger.info(`📊 [Capacity] ${restaurantId} ${dateStr} ${time} → directory restaurant, unlimited (no Mybooki sitting)`);
+        return { ...base, available: null, unlimited: true };
     }
 
     let check;

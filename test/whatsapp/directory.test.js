@@ -14,7 +14,7 @@ import {
     suggestionText,
     toDirectoryEntry,
 } from '../../src/services/whatsapp/whatsappRestaurantDirectory.js';
-import { CHOOSE_OPTION, FOOD_PROMPT, LOCATION_PROMPT, PREFERENCE_PROMPT } from '../../src/services/whatsapp/whatsappSteps.js';
+import { FOOD_PROMPT, LOCATION_PROMPT, PREFERENCE_PROMPT } from '../../src/services/whatsapp/whatsappSteps.js';
 import { createMemorySessionStore } from '../../src/services/whatsapp/whatsappSessionStore.js';
 import {
     bodyOf,
@@ -129,6 +129,32 @@ describe('directory loader', () => {
         assert.equal(entries[0].area, 'Cape Town');
         assert.equal(entries[0].description, 'Steakhouse');
     });
+
+    it('uses stored directory for sheet restaurants and does not call Mybooki', async () => {
+        const fetches = [];
+        const directory = createRestaurantDirectory({
+            listTenants: async () => [{ restaurantId: 's_abc123', isActive: true }],
+            getTenantById: async () => ({
+                restaurantId: 's_abc123',
+                name: 'Banchan',
+                venueType: 'restaurant',
+                isActive: true,
+                phoneNumbers: ['+27111234567'],
+                directory: { city: 'Sandton', street_address: 'Sandton City', province: 'Gauteng' },
+            }),
+            fetchImpl: async (url) => {
+                fetches.push(url);
+                throw new Error(`Mybooki should not be called: ${url}`);
+            },
+        });
+        const entries = await directory.list();
+        assert.equal(fetches.length, 0);
+        assert.equal(entries.length, 1);
+        assert.equal(entries[0].id, 's_abc123');
+        assert.equal(entries[0].name, 'Banchan');
+        assert.equal(entries[0].area, 'Sandton');
+        assert.equal(entries[0].address, 'Sandton City');
+    });
 });
 
 describe('AI location → restaurant → booking restaurant id', () => {
@@ -144,41 +170,38 @@ describe('AI location → restaurant → booking restaurant id', () => {
         return session;
     }
 
-    it('asks location, preference and food, then a Choose an option list of Cape Town restaurants', async () => {
+    it('asks location, preference and food as text, then a numbered restaurant list', async () => {
         const { ctx, client } = fakeCtx(pickerOverrides());
         const afterBook = await openBooking(ctx);
         assert.equal(client.last().type, 'text');
-        assert.equal(bodyOf(client.last()), LOCATION_PROMPT);
+        assert.match(bodyOf(client.last()), /area/i);
         assert.equal(afterBook.awaiting, 'location');
         assert.equal(afterBook.restaurantId, HOST_RESTAURANT_ID);
 
         const afterArea = await handleAiMessage(text('Cape Town'), afterBook, ctx);
         assert.equal(afterArea.awaiting, 'preference');
-        assert.equal(client.last().type, 'list');
-        assert.equal(client.last().args[1], CHOOSE_OPTION);
-        assert.match(bodyOf(client.last()), /kind of evening/);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /romantic, relaxed, lively/);
 
         const afterPref = await handleAiMessage(text('No preference'), afterArea, ctx);
         assert.equal(afterPref.awaiting, 'food');
-        assert.equal(client.last().args[1], CHOOSE_OPTION);
-        assert.match(bodyOf(client.last()), /mood to eat/);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /cuisine in mind/);
 
         const afterFood = await handleAiMessage(text('No preference'), afterPref, ctx);
         assert.equal(afterFood.awaiting, 'restaurant');
-        assert.equal(client.last().type, 'list');
-        assert.equal(client.last().args[1], CHOOSE_OPTION);
+        assert.equal(client.last().type, 'text');
         assert.match(bodyOf(client.last()), /Billy's Steakhouse/);
         assert.match(bodyOf(client.last()), /Bjorn's Steakhouse/);
         assert.match(bodyOf(client.last()), /The Test Kitchen/);
         assert.doesNotMatch(bodyOf(client.last()), /Ryan's Restaurant/);
         assert.deepEqual(afterFood.offeredRestaurants.map((e) => e.id), ['1', '3', '5']);
-        assert.deepEqual(idsOf(client.last()), ['rest:1', 'rest:3', 'rest:5']);
-        assert.match(suggestionText(afterFood.offeredRestaurants), /Which restaurant would you like to book\?/);
+        assert.match(suggestionText(afterFood.offeredRestaurants), /which one catches your eye/i);
         assert.equal(PREFERENCE_PROMPT.length > 0, true);
         assert.equal(FOOD_PROMPT.length > 0, true);
     });
 
-    it('reorders Cape Town matches by food interest and uses Choose an option', async () => {
+    it('reorders Cape Town matches by food interest without a popup list', async () => {
         const { ctx, client } = fakeCtx(pickerOverrides());
         let session = await openBooking(ctx);
         session = await handleAiMessage(text('Cape Town'), session, ctx);
@@ -187,9 +210,8 @@ describe('AI location → restaurant → booking restaurant id', () => {
         assert.equal(session.awaiting, 'restaurant');
         assert.equal(session.preference, 'Date night');
         assert.equal(session.foodInterest, 'Steak');
-        assert.equal(client.last().args[1], CHOOSE_OPTION);
-        assert.match(bodyOf(client.last()), /places I think you would like/);
-        assert.deepEqual(idsOf(client.last()), ['rest:1', 'rest:3', 'rest:5']);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /might suit what you're looking for/);
         assert.equal(session.offeredRestaurants[0].description, 'Steakhouse');
     });
 
@@ -204,7 +226,7 @@ describe('AI location → restaurant → booking restaurant id', () => {
         };
         let session = await openBooking(ctx);
         session = await afterIntake(ctx, session, 'Cape Town');
-        session = await handleAiMessage(text('2'), session, ctx);
+        session = await handleAiMessage(text('I like option 2'), session, ctx);
         assert.equal(session.restaurantId, '3');
         assert.equal(ctx.restaurant.id, '3');
         assert.match(bodyOf(client.last()), /Bjorn's Steakhouse/);
@@ -241,12 +263,9 @@ describe('AI location → restaurant → booking restaurant id', () => {
         let session = await openBooking(ctx);
         session = await handleAiMessage(text('Durban'), session, ctx);
         assert.equal(session.awaiting, 'location');
-        assert.equal(client.last().type, 'list');
-        assert.equal(client.last().args[1], CHOOSE_OPTION);
-        assert.match(bodyOf(client.last()), /areas/);
+        assert.equal(client.last().type, 'text');
         assert.match(bodyOf(client.last()), /Cape Town/);
-        assert.ok(idsOf(client.last()).some((id) => id.startsWith('area:')));
-        assert.ok(idsOf(client.last()).some((id) => id.startsWith('rest:')));
+        assert.doesNotMatch(bodyOf(client.last()), /Choose an option/);
     });
 
     it('lets the guest pick a restaurant from the coverage list', async () => {
@@ -274,7 +293,8 @@ describe('guided mode with a directory', () => {
         session = await handleMessage(text('No preference'), session, ctx);
         assert.equal(session.step, 'restaurant');
         assert.equal(session.offeredRestaurants[0].id, '2');
-        assert.equal(client.last().args[1], CHOOSE_OPTION);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /Ryan's Restaurant/);
 
         session = await handleMessage(text('1'), session, ctx);
         assert.equal(session.step, 'name');
