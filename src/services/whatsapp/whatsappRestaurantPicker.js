@@ -9,17 +9,14 @@
 
 import logger from '../../utils/logger.js';
 import {
-    coverageRows,
     coverageText,
     HOST_RESTAURANT_ID,
     isHostRestaurantId,
     pickFromOffered,
     rankRecommendations,
-    suggestionRows,
     suggestionText,
 } from './whatsappRestaurantDirectory.js';
 import {
-    CHOOSE_OPTION,
     chooseFromListText,
     FOOD_PROMPT,
     FOOD_ROWS,
@@ -34,6 +31,9 @@ import {
     sendPreferencePrompt,
     STEP,
 } from './whatsappSteps.js';
+import { applyExtract, extractBookingDetails } from './whatsappExtract.js';
+import { todayInTz } from './whatsappDateTime.js';
+import { DEFAULT_TIMEZONE } from './whatsappConfig.js';
 
 const BOOK_PHRASES = new Set([
     'book', 'book a table', 'book table', 'booking', 'reservation',
@@ -71,7 +71,7 @@ async function applyRestaurant(ctx, session, entry) {
     }
     ctx.restaurant = restaurant;
     if (session.mode === 'ai') {
-        await ctx.client.sendText(ctx.waId, selectedRestaurantText(restaurant.name));
+        await ctx.client.sendText(ctx.waId, selectedRestaurantText(restaurant.name, session.data || {}));
     }
     logger.info(`🍽️ [WhatsApp] ${ctx.waId} selected restaurant ${restaurant.id} (${restaurant.name})`);
     return {
@@ -84,13 +84,7 @@ async function applyRestaurant(ctx, session, entry) {
 }
 
 export async function sendRestaurantSuggestions(ctx, entries) {
-    return ctx.client.sendList(
-        ctx.waId,
-        suggestionText(entries),
-        CHOOSE_OPTION,
-        suggestionRows(entries),
-        'Restaurants'
-    );
+    return ctx.client.sendText(ctx.waId, suggestionText(entries));
 }
 
 const SKIP_PATTERN = /^(no|none|skip|any|anything|no preference|whatever|surprise me|not sure|n\/?a|doesn't matter|doesnt matter)$/i;
@@ -117,6 +111,7 @@ function snapshotEntries(matches) {
         area: entry.area,
         address: entry.address,
         description: entry.description,
+        cuisine: entry.cuisine || '',
     }));
 }
 
@@ -194,7 +189,7 @@ async function offerCoverage(ctx, session) {
         return { ...session, awaiting: null, restaurantId: HOST_RESTAURANT_ID, offeredRestaurants: [] };
     }
     const prompt = coverageText(entries);
-    await ctx.client.sendList(ctx.waId, prompt, CHOOSE_OPTION, coverageRows(entries), 'Areas & restaurants');
+    await ctx.client.sendText(ctx.waId, prompt);
     return {
         ...session,
         restaurantId: HOST_RESTAURANT_ID,
@@ -228,11 +223,14 @@ export async function handleLocationReply(ctx, session, input) {
     }
 
     const locationText = locationTextFrom(value);
-    if (!locationText) return offerCoverage(ctx, session);
+    const today = todayInTz(ctx.restaurant?.timezone || DEFAULT_TIMEZONE, ctx.now || new Date());
+    session = applyExtract(session, extractBookingDetails(locationText, { today }));
+    const query = session.locationQuery || locationText;
+    if (!query) return offerCoverage(ctx, session);
 
     let result;
     try {
-        result = await ctx.directory.suggest(locationText);
+        result = await ctx.directory.suggest(query);
     } catch (error) {
         logger.error(`❌ [WhatsApp] Location search failed: ${error.message}`);
         await ctx.client.sendText(ctx.waId, noneAvailableText());
@@ -243,24 +241,33 @@ export async function handleLocationReply(ctx, session, input) {
         return offerCoverage(ctx, session);
     }
 
-    await sendPreferencePrompt(ctx);
-    return {
+    const next = {
         ...session,
-        awaiting: 'preference',
-        step: session.mode === 'ai' ? session.step : STEP.PREFERENCE,
-        locationQuery: locationText,
+        locationQuery: query,
         locationMatches: snapshotEntries(result.matches),
         offeredRestaurants: [],
         coveragePrompt: null,
+    };
+
+    if (next.preference || next.foodInterest) {
+        return sendRecommendations(ctx, next);
+    }
+
+    await sendPreferencePrompt(ctx);
+    return {
+        ...next,
+        awaiting: 'preference',
+        step: session.mode === 'ai' ? session.step : STEP.PREFERENCE,
     };
 }
 
 export async function handlePreferenceReply(ctx, session, input) {
     const preference = isSkipAnswer(answerFromInput(input)) ? '' : answerFromInput(input);
+    const next = { ...session, preference };
+    if (next.foodInterest) return sendRecommendations(ctx, next);
     await sendFoodPrompt(ctx);
     return {
-        ...session,
-        preference,
+        ...next,
         awaiting: 'food',
         step: session.mode === 'ai' ? session.step : STEP.FOOD,
     };

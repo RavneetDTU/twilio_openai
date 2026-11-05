@@ -15,6 +15,8 @@
 
 import logger from '../../utils/logger.js';
 import { chooseSitting } from '../capacityService.js';
+import { isSheetImportedRestaurantId } from '../sheetRestaurantIds.js';
+import { evaluateHoursForTime } from './whatsappAvailability.js';
 import { hmToMinutes } from './whatsappDateTime.js';
 
 const MAX_ALTERNATIVES = 3;
@@ -56,7 +58,10 @@ export function createBookingAdapter({
     paymentBaseUrl,
     getConfig = () => ({ alsoSendSms: false }),
 }) {
-    async function checkSlot(restaurantId, date, time, guests) {
+    async function checkSlot(restaurantId, date, time, guests, restaurant = null) {
+        if (isSheetImportedRestaurantId(restaurantId)) {
+            return evaluateHoursForTime(restaurant?.operatingHours, date, time);
+        }
         const capacity = await getAvailableCapacityForDate(null, restaurantId, date, time);
         const result = evaluateCapacity(capacity, guests);
         if (result.failOpen) {
@@ -66,7 +71,7 @@ export function createBookingAdapter({
     }
 
     /** Nearest other times (from `candidates`) that can seat the party. */
-    async function findAlternatives(restaurantId, date, time, guests, candidates = []) {
+    async function findAlternatives(restaurantId, date, time, guests, candidates = [], restaurant = null) {
         const target = hmToMinutes(time);
         const nearest = [...new Set(candidates)]
             .filter((hm) => hm !== time)
@@ -75,6 +80,9 @@ export function createBookingAdapter({
 
         const checks = await Promise.all(nearest.map(async (hm) => {
             try {
+                if (isSheetImportedRestaurantId(restaurantId)) {
+                    return (await checkSlot(restaurantId, date, hm, guests, restaurant)).ok ? hm : null;
+                }
                 const capacity = await getAvailableCapacityForDate(null, restaurantId, date, hm);
                 if (capacity.checkFailed) return null;
                 return evaluateCapacity(capacity, guests).ok ? hm : null;
@@ -93,7 +101,7 @@ export function createBookingAdapter({
      *          | {status: 'error', error}>}
      */
     async function book({ restaurant, waId, data }) {
-        const check = await checkSlot(restaurant.id, data.date, data.time, data.guests);
+        const check = await checkSlot(restaurant.id, data.date, data.time, data.guests, restaurant);
         if (!check.ok) return { status: 'unavailable', check };
 
         try {

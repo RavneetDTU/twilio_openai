@@ -60,6 +60,10 @@ export function restaurantFromTenant(tenant, config = {}) {
         currency: tenant.settings?.currency || 'ZAR',
         depositAmount: Number(tenant.depositAmount || tenant.settings?.depositAmount) || 0,
         operatingHours: tenant.operatingHours || null,
+        address: tenant.directory?.street_address || '',
+        city: tenant.directory?.city || '',
+        cuisine: tenant.directory?.cuisine || '',
+        phone: Array.isArray(tenant.phoneNumbers) ? String(tenant.phoneNumbers[0] || '') : '',
     };
 }
 

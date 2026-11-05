@@ -6,7 +6,6 @@ import {
     formatDateLong,
     formatDateShort,
     formatTime12,
-    upcomingDateRows,
 } from './whatsappDateTime.js';
 
 export const STEP = {
@@ -78,17 +77,19 @@ export const WELCOME_ROWS = [
     { id: REPLY.CONTACT, title: '📞 Contact Us', description: 'Call or message the restaurant' },
 ];
 
-/** Welcome as a list: "Choose an option" opens a sheet with one row per action. */
-export function welcomeText(restaurant) {
-    return `Hello! Welcome to ${restaurant.name} 👋\n\nI'd be happy to help you book a table. What would you like to do?`;
+export function welcomeText(restaurant, { host = false } = {}) {
+    if (host) {
+        return 'Hello — I can help you find a restaurant and book a table. Which area are you hoping to dine in?';
+    }
+    return `Hello — welcome to ${restaurant.name}. I can help you book a table. Tell me when you'd like to visit, or ask a question.`;
 }
 
 export function sendWelcome(ctx, intro) {
-    const body = intro || welcomeText(ctx.restaurant);
-    return ctx.client.sendList(ctx.waId, body, 'Choose an option', WELCOME_ROWS, 'What can I help with?');
+    const body = intro || welcomeText(ctx.restaurant, { host: Boolean(ctx.directory) });
+    return ctx.client.sendText(ctx.waId, body);
 }
 
-export const LOCATION_PROMPT = "Sure! Could you please tell me which area or location you're looking to dine in?";
+export const LOCATION_PROMPT = 'Of course. Which area or neighbourhood would you like to dine in?';
 
 export function sendLocationPrompt(ctx) {
     return ctx.client.sendText(ctx.waId, LOCATION_PROMPT);
@@ -96,7 +97,7 @@ export function sendLocationPrompt(ctx) {
 
 export const CHOOSE_OPTION = 'Choose an option';
 
-export const PREFERENCE_PROMPT = 'What kind of evening are you after? Pick one below, or type your own.';
+export const PREFERENCE_PROMPT = 'Of course! What sort of place are you in the mood for? Somewhere romantic, relaxed, lively, or perhaps something else?';
 export const PREFERENCE_ROWS = [
     { id: REPLY.PREF_CASUAL, title: 'Casual meal', description: 'Relaxed, no fuss' },
     { id: REPLY.PREF_DATE, title: 'Date night', description: 'Quiet or romantic' },
@@ -107,10 +108,10 @@ export const PREFERENCE_ROWS = [
 ];
 
 export function sendPreferencePrompt(ctx) {
-    return ctx.client.sendList(ctx.waId, PREFERENCE_PROMPT, CHOOSE_OPTION, PREFERENCE_ROWS, 'Preference');
+    return ctx.client.sendText(ctx.waId, PREFERENCE_PROMPT);
 }
 
-export const FOOD_PROMPT = 'What are you in the mood to eat? Pick one below, or type a dish or cuisine.';
+export const FOOD_PROMPT = 'Do you have a particular cuisine in mind, or would you like me to suggest a few options?';
 export const FOOD_ROWS = [
     { id: REPLY.FOOD_STEAK, title: 'Steak', description: 'Grills and steakhouse' },
     { id: REPLY.FOOD_SEAFOOD, title: 'Seafood', description: 'Fish and shellfish' },
@@ -120,7 +121,7 @@ export const FOOD_ROWS = [
 ];
 
 export function sendFoodPrompt(ctx) {
-    return ctx.client.sendList(ctx.waId, FOOD_PROMPT, CHOOSE_OPTION, FOOD_ROWS, 'Food');
+    return ctx.client.sendText(ctx.waId, FOOD_PROMPT);
 }
 
 export function noMatchText() {
@@ -135,43 +136,36 @@ export function noneAvailableText() {
     return "Sorry, we don't have any restaurants available to book right now. Please try again shortly.";
 }
 
-export function selectedRestaurantText(name) {
-    return `Great — I'll book you at ${name}. What name should the booking be under, and for how many guests?`;
+export function selectedRestaurantText(name, data = {}) {
+    const missing = [];
+    if (!data.name) missing.push('the name for the booking');
+    if (!data.guests) missing.push('how many people will be joining you');
+    if (!data.date) missing.push('the date');
+    if (!data.time) missing.push('the time');
+    if (!missing.length) {
+        return `Lovely — I'll book you at ${name}. Let me just recap the details before we confirm.`;
+    }
+    if (missing.length === 1) return `Lovely — I'll book you at ${name}. ${missing[0][0].toUpperCase()}${missing[0].slice(1)}?`;
+    return `Lovely — I'll book you at ${name}. ${missing[0][0].toUpperCase()}${missing[0].slice(1)}?`;
 }
 
 export function askName(ctx, session, prefix) {
     const suggested = session.data?.suggestedName;
-    if (suggested) {
-        return ctx.client.sendButtons(
-            ctx.waId,
-            withPrefix(prefix, 'What name should the booking be under? Tap below, or type a different name.'),
-            [{ id: REPLY.NAME_SUGGESTED, title: `Use ${suggested}` }]
-        );
-    }
-    return ctx.client.sendText(ctx.waId, withPrefix(prefix, 'What name should the booking be under?'));
+    const question = suggested
+        ? `What name should the booking be under? I can use ${suggested} if that's you.`
+        : 'What name should the booking be under?';
+    return ctx.client.sendText(ctx.waId, withPrefix(prefix, question));
 }
 
 export function askPhone(ctx, prefix) {
-    return ctx.client.sendButtons(
+    return ctx.client.sendText(
         ctx.waId,
-        withPrefix(prefix, `What's the best contact number for this booking?\n\nTap below to use +${ctx.waId}, or type another number.`),
-        [{ id: REPLY.PHONE_WHATSAPP, title: 'Use this number' }]
+        withPrefix(prefix, `Shall I use your WhatsApp number ending ${String(ctx.waId).slice(-4)} as the contact number, or would you like to share another?`)
     );
 }
 
 export function askGuests(ctx, prefix) {
-    const rows = Array.from({ length: 9 }, (_, i) => ({
-        id: `guests:${i + 1}`,
-        title: i === 0 ? '1 guest' : `${i + 1} guests`,
-    }));
-    rows.push({ id: REPLY.GUESTS_MORE, title: '10 or more' });
-    return ctx.client.sendList(
-        ctx.waId,
-        withPrefix(prefix, 'How many guests, including you?'),
-        'Choose guests',
-        rows,
-        'Party size'
-    );
+    return ctx.client.sendText(ctx.waId, withPrefix(prefix, 'And how many people will be joining you?'));
 }
 
 export function askGuestsMore(ctx, prefix) {
@@ -179,34 +173,26 @@ export function askGuestsMore(ctx, prefix) {
 }
 
 export function askDate(ctx, today, prefix) {
-    return ctx.client.sendList(
+    return ctx.client.sendText(
         ctx.waId,
-        withPrefix(prefix, 'Which date would you like? Pick one below, or type a date like 25/12.'),
-        'Choose date',
-        upcomingDateRows(today, 10),
-        'Dates'
+        withPrefix(prefix, `Perfect! What date would you like to visit? You can say tomorrow, Thursday, or a date like 25/12.`)
     );
 }
 
-/** Up to 9 times plus a "Choose another date" row (10 rows max). */
+/** Opening-hour suggestions as readable text — seats are confirmed separately. */
 export function askTime(ctx, date, times, prefix) {
-    const rows = times.slice(0, 9).map((hm) => ({ id: `time:${hm}`, title: formatTime12(hm) }));
-    rows.push({ id: REPLY.OTHER_DATE, title: 'Choose another date' });
-    return ctx.client.sendList(
+    const labels = (times || []).slice(0, 9).map((hm, i) => `${i + 1}. ${formatTime12(hm)}`);
+    const hours = labels.length
+        ? `\n\nTimes that fall inside opening hours that day:\n${labels.join('\n')}\n\nReply with a number or a time. I'll confirm a table once you choose.`
+        : ' You can type a time such as 7:30 PM.';
+    return ctx.client.sendText(
         ctx.waId,
-        withPrefix(prefix, `What time on ${formatDateShort(date)}? Pick one below, or type a time like 19:30.`),
-        'Choose time',
-        rows,
-        'Times'
+        withPrefix(prefix, `What time on ${formatDateShort(date)} would you like?${hours}`)
     );
 }
 
 export function askRequests(ctx, prefix) {
-    return ctx.client.sendButtons(
-        ctx.waId,
-        withPrefix(prefix, 'Any special requests or allergies? Type them below, or tap No requests.'),
-        [{ id: REPLY.NO_REQUESTS, title: 'No requests' }]
-    );
+    return ctx.client.sendText(ctx.waId, withPrefix(prefix, 'Any special requests or allergies I should note? If not, just say none.'));
 }
 
 export function summaryText(restaurant, data) {
@@ -241,27 +227,27 @@ export function askConfirm(ctx, data, prefix) {
 
 export function confirmationText(restaurant, data, result) {
     const lines = [
-        '✅ Your booking is confirmed!',
+        'Great news! Your reservation is confirmed.',
         '',
-        `🍽️ ${restaurant.name}`,
-        `👤 ${data.name}`,
-        `📅 ${formatDateLong(data.date)}`,
-        `🕒 ${formatTime12(data.time)}`,
-        `👥 ${data.guests} ${Number(data.guests) === 1 ? 'guest' : 'guests'}`,
+        `🍽️ Restaurant: ${restaurant.name}`,
+        `👤 Name: ${data.name}`,
+        `📅 Date: ${formatDateLong(data.date)}`,
+        `🕒 Time: ${formatTime12(data.time)}`,
+        `👥 Guests: ${data.guests}`,
     ];
-    if (data.requests) lines.push(`📝 ${data.requests}`);
-    lines.push(`🔖 Reference: ${String(result.paymentId).slice(0, 8).toUpperCase()}`);
+    if (data.requests) lines.push(`📝 Requests: ${data.requests}`);
+    lines.push(`🎟️ Reference: ${String(result.paymentId).slice(0, 8).toUpperCase()}`);
 
     if (result.paymentLink) {
         lines.push(
             '',
-            `💳 To secure your table, please pay the deposit of ${formatMoney(result.bookingAmount, restaurant.currency)} here:`,
+            `To secure the table, please pay the deposit of ${formatMoney(result.bookingAmount, restaurant.currency)}:`,
             result.paymentLink
         );
     } else {
-        lines.push('', 'We look forward to seeing you!');
+        lines.push('', 'We look forward to welcoming you!');
     }
-    lines.push('', 'Send "menu" any time to start again.');
+    lines.push('', 'If you need to make any changes, just send me a message.');
     return lines.join('\n');
 }
 

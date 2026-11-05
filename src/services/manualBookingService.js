@@ -3,6 +3,7 @@ import { db } from '../config/firebase.js';
 import smsService from './smsService.js';
 import { sendBookingNotificationEmail } from './emailService.js';
 import { getRestaurantDetails } from '../utils/config.js';
+import { isSheetImportedRestaurantId } from './sheetRestaurantIds.js';
 import logger from '../utils/logger.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
@@ -79,38 +80,43 @@ class ManualBookingService {
         logger.info("Manual booking created successfully", manualBookingData);
         await docRef.set(manualBookingData);
 
-        // 4.5. Send to External Reservation API
-        try {
-            const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
-            const payload = {
-                reference_id: paymentId || null,
-                name: name || null,
-                phone: phoneNo || null,
-                date: date || null,
-                time: time || null,
-                party_size: Number(guests) || 0,
-                allergies: allergy || 'N/A',
-                notes: notes || 'N/A',
-                transcription: 'Manually Created', // Manual booking has no transcription
-                ...(options.source ? { source: options.source } : {}),
-                ...(options.sittingId != null ? { sitting_id: options.sittingId } : {})
-            };
+        // 4.5. Send to External Reservation API (Mybooki restaurants only)
+        if (isSheetImportedRestaurantId(restaurantId)) {
+            logger.info(`📡 Skipping Mybooki reservation API for directory restaurant ${restaurantId}`);
+            await docRef.update({ reservationApiStatus: 'skipped_directory_restaurant' });
+        } else {
+            try {
+                const url = `${RESERVATION_API_BASE}/${restaurantId}/reservations`;
+                const payload = {
+                    reference_id: paymentId || null,
+                    name: name || null,
+                    phone: phoneNo || null,
+                    date: date || null,
+                    time: time || null,
+                    party_size: Number(guests) || 0,
+                    allergies: allergy || 'N/A',
+                    notes: notes || 'N/A',
+                    transcription: 'Manually Created', // Manual booking has no transcription
+                    ...(options.source ? { source: options.source } : {}),
+                    ...(options.sittingId != null ? { sitting_id: options.sittingId } : {})
+                };
 
-            logger.info(`📡 Sending manual reservation to API: ${url}`);
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+                logger.info(`📡 Sending manual reservation to API: ${url}`);
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error(`❌ Reservation API error (${response.status}): ${errorText}`);
-            } else {
-                logger.info(`✅ Manual Reservation API success`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    logger.error(`❌ Reservation API error (${response.status}): ${errorText}`);
+                } else {
+                    logger.info(`✅ Manual Reservation API success`);
+                }
+            } catch (apiError) {
+                logger.error(`❌ Manual Reservation API request failed: ${apiError.message}`);
             }
-        } catch (apiError) {
-            logger.error(`❌ Manual Reservation API request failed: ${apiError.message}`);
         }
 
         // 5. Send SMS using existing service

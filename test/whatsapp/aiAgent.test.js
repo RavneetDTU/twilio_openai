@@ -53,20 +53,17 @@ const started = (extra = {}) => ({
 });
 
 describe('AI conversation', () => {
-    it('first message gets the welcome with "Choose an option", without calling the model', async () => {
+    it('first message gets one welcome text, without calling the model', async () => {
         const { ctx, client, ai } = aiCtx([]);
         const session = await handleAiMessage(text('Hi'), null, ctx);
 
         assert.equal(ai.requests.length, 0);
         assert.equal(client.sent.length, 1);
-        const [body, buttonText, rows] = client.last().args;
-        assert.equal(client.last().type, 'list');
-        assert.match(body, /Hello! Welcome to Billy's Steakhouse/);
-        assert.equal(buttonText, 'Choose an option');
-        assert.deepEqual(rows.map((r) => r.title), ['🍽️ Book a Table', '📖 View Menu', '📞 Contact Us']);
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /welcome to Billy's Steakhouse/i);
+        assert.doesNotMatch(bodyOf(client.last()), /Choose an option/);
         assert.equal(session.mode, 'ai');
         assert.equal(session.history.length, 2);
-        assert.match(session.history[1].content, /Options shown: 🍽️ Book a Table/);
     });
 
     it('a tapped option goes to the AI as text and the reply is free text', async () => {
@@ -150,7 +147,8 @@ describe('AI conversation', () => {
         const { ctx, client, ai } = aiCtx([]);
         const session = await handleAiMessage(text('restart'), started(), ctx);
         assert.equal(ai.requests.length, 0);
-        assert.equal(client.last().type, 'list');
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /welcome to Billy's Steakhouse/i);
         assert.equal(session.history.length, 2);
 
         const second = aiCtx([]);
@@ -158,7 +156,7 @@ describe('AI conversation', () => {
         assert.match(bodyOf(second.client.last()), /cancelled/);
     });
 
-    it('"Hi" in an ongoing chat starts fresh with the welcome list', async () => {
+    it('"Hi" in an ongoing chat does not restart or send another menu', async () => {
         for (const greeting of ['Hi', 'hello!', 'Hey ']) {
             const { ctx, client, ai } = aiCtx([]);
             const session = await handleAiMessage(text(greeting), started({ history: [
@@ -166,9 +164,9 @@ describe('AI conversation', () => {
                 { role: 'assistant', content: 'What time?' },
             ] }), ctx);
             assert.equal(ai.requests.length, 0);
-            assert.equal(client.last().type, 'list');
-            assert.equal(client.last().args[1], 'Choose an option');
-            assert.equal(session.history.length, 2);
+            assert.equal(client.last().type, 'text');
+            assert.match(bodyOf(client.last()), /Hi again/i);
+            assert.ok(session.history.length > 2);
         }
     });
 
@@ -176,7 +174,8 @@ describe('AI conversation', () => {
         const { ctx, client, ai } = aiCtx([]);
         await handleAiMessage(text('Hi'), { step: 'confirm', restaurantId: '1', data: { name: 'X' } }, ctx);
         assert.equal(ai.requests.length, 0);
-        assert.equal(client.last().type, 'list');
+        assert.equal(client.last().type, 'text');
+        assert.match(bodyOf(client.last()), /welcome to Billy's Steakhouse/i);
     });
 });
 

@@ -12,6 +12,7 @@
 // =============================================================================
 
 import logger from '../../utils/logger.js';
+import { isSheetImportedRestaurantId } from '../sheetRestaurantIds.js';
 import { clip } from './whatsappClient.js';
 import { DEFAULT_TIMEZONE, WA_LIMITS } from './whatsappConfig.js';
 
@@ -74,6 +75,7 @@ export function toDirectoryEntry(tenant, address) {
         address: String(address?.street_address || '').trim(),
         postalCode: String(address?.postal_code || '').trim(),
         description: describeVenue(tenant.venueType),
+        cuisine: String(address?.cuisine || tenant.directory?.cuisine || '').trim(),
         phone: Array.isArray(tenant.phoneNumbers) ? String(tenant.phoneNumbers[0] || '') : '',
     };
 }
@@ -177,8 +179,11 @@ export function rankRecommendations(entries, { preference, food, limit = SUGGEST
 }
 
 function digitsOnly(value) {
-    const match = String(value || '').trim().match(/^(\d{1,2})(?:[.)]|\b)/);
-    return match ? Number(match[1]) : null;
+    const raw = String(value || '').trim();
+    const option = raw.match(/\b(?:option|number|#|choice)\s*(\d{1,2})\b/i)
+        || raw.match(/\b(?:like|choose|pick|go with|book)\s+(?:option\s+)?(\d{1,2})\b/i)
+        || raw.match(/^(\d{1,2})(?:[.)]|$)/);
+    return option ? Number(option[1]) : null;
 }
 
 /**
@@ -215,14 +220,15 @@ export function pickFromOffered(input, offered = []) {
 }
 
 export function suggestionText(entries) {
-    const lines = ['Here are a few places I think you would like:', ''];
+    const lines = ["Thanks! I've found a few places that might suit what you're looking for.", ''];
     (entries || []).forEach((entry, i) => {
         lines.push(`${i + 1}. ${entry.name}`);
         const loc = locationLine(entry);
-        if (loc) lines.push(`   ${loc}`);
-        if (entry.description) lines.push(`   ${entry.description}`);
+        if (loc) lines.push(`   📍 ${loc}`);
+        const food = entry.cuisine || entry.description;
+        if (food) lines.push(`   🍽️ ${food}`);
     });
-    lines.push('', 'Which restaurant would you like to book?');
+    lines.push('', "Take a look and let me know which one catches your eye. I'll help you with the reservation.");
     return lines.join('\n');
 }
 
@@ -266,14 +272,14 @@ export function coverageText(entries) {
     const areas = uniqueAreas(entries);
     if (areas.length) {
         return [
-            'We can book restaurants in these areas:',
+            "I don't have restaurants listed in that area yet. I can help in these places:",
             '',
-            ...areas.slice(0, 10).map((area) => `• ${area}`),
+            ...areas.slice(0, 10).map((area, i) => `${i + 1}. ${area}`),
             '',
-            'Pick an area or a restaurant below, or type a city name.',
+            'Tell me which area suits you, or the name of a restaurant you already have in mind.',
         ].join('\n');
     }
-    return 'Here are restaurants we can book. Pick one below, or type a city if you know it.';
+    return 'Tell me a city or restaurant name and I will check what we can book.';
 }
 
 export function coverageRows(entries, { max = WA_LIMITS.MAX_LIST_ROWS } = {}) {
@@ -299,6 +305,7 @@ export function createRestaurantDirectory({ listTenants, getTenantById, fetchImp
     let cache = null;
 
     async function fetchAddress(restaurantId) {
+        if (isSheetImportedRestaurantId(restaurantId)) return null;
         try {
             const response = await fetchImpl(`${RESERVATION_API_BASE}/${encodeURIComponent(restaurantId)}/address`, {
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -320,7 +327,14 @@ export function createRestaurantDirectory({ listTenants, getTenantById, fetchImp
                 fetchAddress(summary.restaurantId),
             ]);
             if (!tenant || tenant.isActive === false) return null;
-            return toDirectoryEntry(tenant, address);
+            const stored = tenant.directory || {};
+            return toDirectoryEntry(tenant, {
+                street_address: address?.street_address || stored.street_address || '',
+                city: address?.city || stored.city || '',
+                province_state: address?.province_state || stored.province || '',
+                postal_code: address?.postal_code || stored.postal_code || '',
+                cuisine: stored.cuisine || '',
+            });
         }));
         return entries.filter(Boolean);
     }

@@ -10,8 +10,9 @@
 // =============================================================================
 
 import logger from '../../utils/logger.js';
+import { isSheetImportedRestaurantId } from '../sheetRestaurantIds.js';
 import { normaliseTime } from '../restaurantAvailabilityService.js';
-import { buildTimeSlots, dayNameFor } from './whatsappDateTime.js';
+import { buildTimeSlots, dayNameFor, hmToMinutes } from './whatsappDateTime.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 const REQUEST_TIMEOUT_MS = 4000;
@@ -60,6 +61,33 @@ export function windowsFromTenant(operatingHours, date) {
     return open && close ? { closed: false, windows: [{ open, close }] } : null;
 }
 
+export function timeInWindows(windows, time) {
+    const minutes = hmToMinutes(time);
+    if (!Number.isFinite(minutes)) return false;
+    return (windows || []).some((window) => {
+        const open = hmToMinutes(window.open);
+        const close = hmToMinutes(window.close);
+        if (!Number.isFinite(open) || !Number.isFinite(close)) return false;
+        if (close > open) return minutes >= open && minutes < close;
+        return minutes >= open || minutes < close;
+    });
+}
+
+/** Hours check for sheet-imported restaurants (no Mybooki sittings). */
+export function evaluateHoursForTime(operatingHours, date, time) {
+    const plan = windowsFromTenant(operatingHours, date) || { closed: false, windows: DEFAULT_WINDOWS };
+    if (plan.closed) return { ok: false, reason: 'closed', message: plan.reason || 'Closed that day' };
+    if (!time) return { ok: true, sittingId: null };
+    if (!timeInWindows(plan.windows, time)) {
+        return { ok: false, reason: 'closed', message: 'That time is outside opening hours' };
+    }
+    return { ok: true, sittingId: null };
+}
+
+function hoursPlanForDay(restaurant, date) {
+    return windowsFromTenant(restaurant?.operatingHours, date) || { closed: false, windows: DEFAULT_WINDOWS };
+}
+
 export function createAvailabilityProvider({ fetchImpl = fetch } = {}) {
     async function fetchJson(url) {
         const response = await fetchImpl(url, {
@@ -80,19 +108,22 @@ export function createAvailabilityProvider({ fetchImpl = fetch } = {}) {
          */
         async getDaySlots(restaurant, date, { today, minutesNow }) {
             let plan = null;
-            try {
-                const base = `${RESERVATION_API_BASE}/${restaurant.id}`;
-                const [holidays, hours] = await Promise.all([
-                    fetchJson(`${base}/holidays`),
-                    fetchJson(`${base}/operating-hours`),
-                ]);
-                plan = windowsFromApi(holidays, hours, date);
-            } catch (error) {
-                logger.warn(`⚠️ [WhatsApp] Hours lookup failed for ${restaurant.id} ${date}: ${error.message} — using tenant hours`);
+            if (isSheetImportedRestaurantId(restaurant?.id)) {
+                plan = hoursPlanForDay(restaurant, date);
+            } else {
+                try {
+                    const base = `${RESERVATION_API_BASE}/${restaurant.id}`;
+                    const [holidays, hours] = await Promise.all([
+                        fetchJson(`${base}/holidays`),
+                        fetchJson(`${base}/operating-hours`),
+                    ]);
+                    plan = windowsFromApi(holidays, hours, date);
+                } catch (error) {
+                    logger.warn(`⚠️ [WhatsApp] Hours lookup failed for ${restaurant.id} ${date}: ${error.message} — using tenant hours`);
+                }
+                if (!plan) plan = windowsFromTenant(restaurant.operatingHours, date);
+                if (!plan) plan = { closed: false, windows: DEFAULT_WINDOWS };
             }
-
-            if (!plan) plan = windowsFromTenant(restaurant.operatingHours, date);
-            if (!plan) plan = { closed: false, windows: DEFAULT_WINDOWS };
             if (plan.closed) return { closed: true, reason: plan.reason || null, times: [] };
 
             const notBeforeMinutes = date === today ? minutesNow + LEAD_MINUTES : 0;

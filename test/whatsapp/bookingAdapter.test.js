@@ -132,6 +132,42 @@ describe('book → existing createManualBooking', () => {
         assert.equal(result.status, 'booked');
         assert.equal(calls.booking[0][2].sittingId, 7);
     });
+
+    it('sheet restaurant books from tenant hours without Mybooki capacity', async () => {
+        const { instance, calls } = adapter({
+            capacity: () => { throw new Error('Mybooki should not be called'); },
+        });
+        const restaurant = {
+            id: 's_abc123',
+            name: 'Banchan',
+            depositAmount: 0,
+            operatingHours: { Friday: { open: '8:00 AM', close: '9:00 PM' } },
+        };
+        const result = await instance.book({ restaurant, waId: WA_ID, data: DATA });
+        assert.equal(calls.capacity.length, 0);
+        assert.equal(calls.booking[0][0], 's_abc123');
+        assert.equal(result.status, 'booked');
+        assert.equal(result.paymentLink, null);
+    });
+
+    it('sheet restaurant rejects a time outside opening hours', async () => {
+        const { instance, calls } = adapter();
+        const restaurant = {
+            id: 's_abc123',
+            name: 'Banchan',
+            depositAmount: 0,
+            operatingHours: { Friday: { open: '8:00 AM', close: '9:00 PM' } },
+        };
+        const result = await instance.book({
+            restaurant,
+            waId: WA_ID,
+            data: { ...DATA, time: '22:00' },
+        });
+        assert.equal(result.status, 'unavailable');
+        assert.equal(result.check.reason, 'closed');
+        assert.equal(calls.booking.length, 0);
+        assert.equal(calls.capacity.length, 0);
+    });
 });
 
 describe('findAlternatives', () => {

@@ -54,13 +54,14 @@ import {
     chooseFromListText,
     confirmationText,
     formatMoney,
+    LOCATION_PROMPT,
     MAX_GUESTS,
     noMatchText,
     selectedRestaurantText,
     sendWelcome,
-    WELCOME_ROWS,
     welcomeText,
 } from './whatsappSteps.js';
+import { applyExtract, collectedSummary, extractBookingDetails, hasCollectedBits, isGreetingOnly } from './whatsappExtract.js';
 
 export const DEFAULT_AI_MODEL = 'gpt-4.1-mini';
 
@@ -70,10 +71,7 @@ const MAX_TOOL_ROUNDS = 5;
 const MIN_LEAD_MINUTES = 30;
 const CALENDAR_DAYS = 14;
 
-const RESET_WORDS = new Set([
-    'restart', 'start over', 'reset', 'menu',
-    'hi', 'hii', 'hiii', 'hello', 'hey', 'hallo', 'hiya', 'howzit', 'good morning', 'good afternoon', 'good evening',
-]);
+const RESET_WORDS = new Set(['restart', 'start over', 'reset', 'menu']);
 const CANCEL_WORDS = new Set(['cancel', 'cancel booking']);
 
 export const PICK_TOOLS = [
@@ -81,7 +79,7 @@ export const PICK_TOOLS = [
         type: 'function',
         function: {
             name: 'find_restaurants',
-            description: 'Finds restaurants in an area the guest named. Call when they say a neighbourhood, city or area and have not picked a restaurant yet. After this, the system asks preference and food interest, then shows a Choose an option list.',
+            description: 'Finds restaurants in an area the guest named. Call when they say a neighbourhood, city or area and have not picked a restaurant yet. The system then asks preference and food in ordinary text, then sends a numbered list of real restaurants.',
             parameters: {
                 type: 'object',
                 properties: { location: { type: 'string', description: 'Area, neighbourhood or city' } },
@@ -94,7 +92,7 @@ export const PICK_TOOLS = [
         type: 'function',
         function: {
             name: 'select_restaurant',
-            description: 'Locks in a restaurant from the list just shown. restaurant_id must be one of those ids.',
+            description: 'Locks in a restaurant from the numbered list just shown. restaurant_id must be one of those ids. Also call this when they say option 2 or the restaurant name.',
             parameters: {
                 type: 'object',
                 properties: { restaurant_id: { type: 'string' } },
@@ -170,7 +168,7 @@ function calendarLines(today) {
     }).join('\n');
 }
 
-export function buildSystemPrompt({ restaurant, config, waId, knownName, now }) {
+export function buildSystemPrompt({ restaurant, config, waId, knownName, now, session }) {
     const tz = timezoneOf(restaurant);
     const today = todayInTz(tz, now);
     const nowHm = minutesNowInTz(tz, now);
@@ -178,15 +176,29 @@ export function buildSystemPrompt({ restaurant, config, waId, knownName, now }) 
     const deposit = Number(restaurant.depositAmount) || 0;
 
     const selected = restaurant && !isHostRestaurantId(restaurant.id);
+    const known = collectedSummary(session);
+    const offered = (session?.offeredRestaurants || []).map((entry, i) => `${i + 1}. ${entry.name} [${entry.id}]`).join('\n');
+    const facts = selected ? [
+        restaurant.city && `City: ${restaurant.city}`,
+        restaurant.address && `Address: ${restaurant.address}`,
+        restaurant.cuisine && `Cuisine: ${restaurant.cuisine}`,
+        restaurant.phone && `Phone: ${restaurant.phone}`,
+    ].filter(Boolean).join('\n') : '';
 
-    return `You are the WhatsApp host for ${selected ? restaurant.name : 'Booki AI'}. You chat with guests the way a friendly, experienced member of the front-of-house team would: warm, natural and efficient. You are not a menu bot.
+    return `You are the WhatsApp host for ${selected ? restaurant.name : 'Booki'}. You are a polite, professional restaurant booking assistant. You are not a form and you are not a human employee.
 
 How you write
 - Short WhatsApp messages: usually 1–3 sentences. Ask only one question per message.
-- Sound human. Vary your wording, acknowledge what they said ("Lovely", "Perfect, noted"), use their first name once you know it.
-- No bullet lists, headings or numbered menus. At most one emoji now and then.
+- Sound warm and natural. Acknowledge what they just said, then ask only for the next missing fact.
+- Do not greet again if you have already welcomed them. Do not repeat their name in every message.
+- No chatbot menus, no "choose an option", no robotic labels like "Enter your preferred booking date".
+- Numbered restaurant lists are allowed only when repeating a list the system already sent. Do not invent extra restaurants.
 - Reply in the guest's language.
-- If asked whether you are a person, say you are ${restaurant.name}'s virtual assistant.
+
+Never invent
+- Restaurant names, addresses, hours, phone numbers, menus, prices, policies or specials.
+- Availability, booking confirmations, payment confirmations or reference numbers.
+- If you do not have a verified fact, say you do not have that confirmed and offer to check or share the contact details.
 
 What you know
 - Today is ${formatDateLong(today)}, about ${clock} (${tz}).
@@ -196,26 +208,30 @@ ${calendarLines(today)}
 - Deposit: ${deposit > 0 ? `${formatMoney(deposit, restaurant.currency)} per guest, paid through a secure link sent after booking` : 'none required'}.
 - Menu: ${config.menuUrl || 'not available on WhatsApp'}.
 - Contact details: ${config.contactInfo || 'not provided'}.
-- The guest's WhatsApp number is +${waId}.${knownName ? `\n- Their name is probably ${knownName} (from an earlier booking or their WhatsApp profile). When you need the name, offer it, e.g. "Shall I put it under ${knownName.split(' ')[0]}?", instead of asking from scratch.` : ''}
+- The guest's WhatsApp number is +${waId}.${knownName ? `\n- Their name is probably ${knownName}. Offer it once, e.g. "Shall I put it under ${knownName.split(' ')[0]}?"` : ''}
+${known.length ? `- Already collected (do not ask again unless they change it):\n${known.map((line) => `  - ${line}`).join('\n')}` : ''}
+${offered ? `- Restaurants just offered (the only ones you may name until they pick):\n${offered}` : ''}
+${facts ? `- Verified facts for ${restaurant.name}:\n${facts}` : ''}
 
 ${selected ? `Taking a booking at ${restaurant.name}` : `Choosing a restaurant
 - The guest has not picked a restaurant yet. Do not guess one and never use a default restaurant.
-- If they have not said an area, ask: "${locationPromptForHistory()}"
-- Once they name an area, call find_restaurants. The system then asks preference and food interest, then shows a Choose an option list of matching restaurants. Call select_restaurant only with an id from that list.
-- If they do not name a known area, the system shows the areas and restaurants we actually have. Do not invent cities or restaurants.
+- If they have not said an area, ask which area they would like to dine in.
+- Once they name an area, call find_restaurants. The system sends preference, food and restaurant messages itself — do not repeat those lists.
+- Call select_restaurant only with an id from the list just shown.
+- If they do not name a known area, the system shows real areas we cover. Do not invent cities or restaurants.
 - Do not call get_available_times, check_availability or create_booking until a restaurant is selected.
 
 Taking a booking`}
-- You need: name, number of guests, date and time. Use their WhatsApp number as the contact number unless they give another. Ask once, lightly, about allergies or a special occasion.
-- Collect details conversationally. If they give several at once, take them all; don't re-ask.
-- Once you know the date, you may call get_available_times to suggest times.
-- Before saying a time works, call check_availability with date, time and guests. Never guess or invent availability. If it is not available, offer two or three of the returned alternatives.
-- When everything is known and available, recap in one short message (name, guests, day and date, time, requests${deposit > 0 ? ', deposit amount' : ''}) and ask them to confirm.
-- Only call create_booking after a clear yes. Do not write a confirmation or a payment link yourself; the system sends them.
+- You need: name, number of guests, date and time. Use their WhatsApp number unless they give another. Ask once about allergies or a special occasion.
+- If they give several details at once, keep all of them. If they say "actually, make it 6 guests", update that field only.
+- Once you know the date, you may call get_available_times. Those times are opening-hour slots, not a confirmed table.
+- Before saying a time can be booked, call check_availability with date, time and guests. Never claim a table is available without that tool. If it is not available, explain politely and offer returned alternatives.
+- When everything is known and check_availability returned available, recap in one short message and ask them to confirm.
+- Only call create_booking after a clear yes. Do not write a confirmation or a payment link yourself; the system sends them after the booking is saved.
 - If a tool returns an error, explain it simply and ask for what is needed.
 
 Other questions
-- Answer from what you know above. If you don't know (prices, parking, specific dishes), say so honestly and share the menu link or contact details. Never make things up.
+- Answer only from verified facts above. If you don't know, say so and share the menu link or contact details.
 - You cannot change or cancel existing bookings in this chat; give the contact details for that.`;
 }
 
@@ -270,6 +286,13 @@ function remember(session, input, assistantText) {
     };
 }
 
+function uniqueAreaLines(prompt) {
+    return String(prompt || '')
+        .split('\n')
+        .map((line) => line.replace(/^\d+\.\s*/, '').trim())
+        .filter((line) => line && !/tell me|don't have|i can help/i.test(line));
+}
+
 function leftoverLocation(input) {
     if (input?.type !== 'text') return '';
     const stripped = String(input.text || '')
@@ -284,7 +307,7 @@ async function handleRestaurantSelectionTurn(input, session, ctx) {
     if (session.awaiting === 'restaurant') {
         const next = await handleRestaurantReply(ctx, session, input);
         return remember(next, input, hasBookingRestaurant(ctx, next)
-            ? selectedRestaurantText(ctx.restaurant.name)
+            ? selectedRestaurantText(ctx.restaurant.name, next.data || {})
             : chooseFromListText());
     }
 
@@ -301,12 +324,20 @@ async function handleRestaurantSelectionTurn(input, session, ctx) {
     }
 
     if (session.awaiting === 'location') {
+        if (isGreetingOnly(inputToText(input)) || (isBookIntent(input) && !leftoverLocation(input))) {
+            return remember(session, input, locationPromptForHistory());
+        }
         const next = await handleLocationReply(ctx, session, input);
-        return remember(next, input, next.awaiting === 'preference'
+        const spoken = next.awaiting === 'preference'
             ? preferencePromptForHistory()
-            : hasBookingRestaurant(ctx, next)
-                ? selectedRestaurantText(ctx.restaurant.name)
-                : coveragePromptForHistory(next));
+            : next.awaiting === 'food'
+                ? foodPromptForHistory()
+                : next.awaiting === 'restaurant'
+                    ? suggestionText(next.offeredRestaurants)
+                    : hasBookingRestaurant(ctx, next)
+                        ? selectedRestaurantText(ctx.restaurant.name, next.data || {})
+                        : coveragePromptForHistory(next);
+        return remember(next, input, spoken);
     }
 
     if (!hasBookingRestaurant(ctx, session) && isBookIntent(input)) {
@@ -315,11 +346,13 @@ async function handleRestaurantSelectionTurn(input, session, ctx) {
             const next = await handleLocationReply(ctx, session, extra);
             return remember(next, input, next.awaiting === 'preference'
                 ? preferencePromptForHistory()
-                : coveragePromptForHistory(next));
+                : next.awaiting === 'restaurant'
+                    ? suggestionText(next.offeredRestaurants)
+                    : coveragePromptForHistory(next));
         }
         const next = await beginRestaurantPick(ctx, session);
         if (hasBookingRestaurant(ctx, next)) {
-            return remember(next, input, selectedRestaurantText(ctx.restaurant.name));
+            return remember(next, input, selectedRestaurantText(ctx.restaurant.name, next.data || {}));
         }
         return remember(next, input, locationPromptForHistory());
     }
@@ -361,7 +394,7 @@ async function alternativesFor(ctx, date, hm, guests) {
         minutesNow: minutesNowInTz(tz, ctx.now),
     });
     if (slots.closed) return [];
-    return ctx.booking.findAlternatives(ctx.restaurant.id, date, hm, guests, slots.times);
+    return ctx.booking.findAlternatives(ctx.restaurant.id, date, hm, guests, slots.times, ctx.restaurant);
 }
 
 function unavailablePayload(check, alternatives) {
@@ -387,8 +420,23 @@ export async function runTool(name, args, ctx, session) {
                 result: {
                     matches: [],
                     unmatched: true,
-                    areas: (next.coveragePrompt || '').match(/^• .+$/gm) || [],
-                    note: 'The guest was shown available areas and restaurants. Ask them to pick one. Do not invent a location.',
+                    areas: uniqueAreaLines(next.coveragePrompt),
+                    note: 'The guest was shown real areas we cover. Ask them to pick one. Do not invent a location or restaurant.',
+                },
+                sessionPatch: next,
+            };
+        }
+        if (next.awaiting === 'restaurant') {
+            return {
+                result: {
+                    area: next.locationQuery,
+                    restaurants: (next.offeredRestaurants || []).map((entry) => ({
+                        id: entry.id,
+                        name: entry.name,
+                        address: entry.address || entry.area || '',
+                        cuisine: entry.cuisine || entry.description || '',
+                    })),
+                    note: 'A numbered list of these restaurants was sent. Do not add names. Wait for the guest to pick one.',
                 },
                 sessionPatch: next,
             };
@@ -397,7 +445,7 @@ export async function runTool(name, args, ctx, session) {
             result: {
                 area: next.locationQuery,
                 candidates: next.locationMatches.length,
-                note: 'Ask what kind of evening they want, then what they feel like eating. Do not list restaurants until those answers are in.',
+                note: 'The system asked a follow-up in ordinary text. Do not list restaurants until that reply is in. Do not invent names.',
             },
             sessionPatch: next,
         };
@@ -445,7 +493,7 @@ export async function runTool(name, args, ctx, session) {
         const guests = checkGuests(args.guests);
         if (guests.error) return { result: { error: guests.error } };
 
-        const check = await ctx.booking.checkSlot(ctx.restaurant.id, args.date, time.hm, guests.n);
+        const check = await ctx.booking.checkSlot(ctx.restaurant.id, args.date, time.hm, guests.n, ctx.restaurant);
         if (check.ok) {
             return { result: { available: true, date: args.date, day: formatDateLong(args.date), time: time.hm, label: formatTime12(time.hm), guests: guests.n } };
         }
@@ -535,6 +583,7 @@ export async function handleAiMessage(input, existingSession, ctx) {
     const lower = input.type === 'text'
         ? String(input.text || '').trim().toLowerCase().replace(/[!.,?\s]+$/, '')
         : '';
+    const today = todayInTz(timezoneOf(ctx.restaurant), ctx.now || new Date());
 
     if (CANCEL_WORDS.has(lower) && session.history.length > 0 && !session.lastBooking) {
         await ctx.client.sendText(ctx.waId, cancelledText());
@@ -545,13 +594,52 @@ export async function handleAiMessage(input, existingSession, ctx) {
         if (ctx.directory && typeof ctx.hostRestaurant === 'function') ctx.restaurant = ctx.hostRestaurant();
     }
 
+    if (input.type === 'text') {
+        session = applyExtract(session, extractBookingDetails(input.text, { today }));
+        if (session.lastCorrection === 'guests' && session.data?.guests && session.history?.length) {
+            await ctx.client.sendText(ctx.waId, `Of course, I've updated that to ${session.data.guests} guests.`);
+            return remember({ ...session, lastCorrection: null }, input, `Of course, I've updated that to ${session.data.guests} guests.`);
+        }
+    }
+
+    if (isGreetingOnly(input.type === 'text' ? input.text : '') && session.history?.length > 0) {
+        const followUp = session.awaiting === 'location' || ctx.directory
+            ? 'Hi again — which area would you like to dine in?'
+            : 'Hi again — shall we continue with your booking?';
+        await ctx.client.sendText(ctx.waId, followUp);
+        return remember(session, input, followUp);
+    }
+
     if (!session.history || session.history.length === 0) {
+        const extracted = extractBookingDetails(inputToText(input), { today });
+        if (ctx.directory && (hasCollectedBits(extracted) || isBookIntent(input))) {
+            if (extracted.location) {
+                const next = await handleLocationReply(ctx, session, extracted.location);
+                const spoken = next.awaiting === 'preference'
+                    ? preferencePromptForHistory()
+                    : next.awaiting === 'restaurant'
+                        ? suggestionText(next.offeredRestaurants)
+                        : coveragePromptForHistory(next);
+                return remember(next, input, spoken);
+            }
+            await ctx.client.sendText(ctx.waId, LOCATION_PROMPT);
+            return {
+                ...session,
+                awaiting: 'location',
+                history: [
+                    { role: 'user', content: inputToText(input) || '(empty message)' },
+                    { role: 'assistant', content: LOCATION_PROMPT },
+                ],
+            };
+        }
+        const intro = welcomeText(ctx.restaurant, { host: Boolean(ctx.directory) });
         await sendWelcome(ctx);
         return {
             ...session,
+            awaiting: ctx.directory ? 'location' : session.awaiting,
             history: [
                 { role: 'user', content: inputToText(input) || '(empty message)' },
-                { role: 'assistant', content: `${welcomeText(ctx.restaurant)}\n[Options shown: ${WELCOME_ROWS.map((r) => r.title).join(', ')}]` },
+                { role: 'assistant', content: intro },
             ],
         };
     }
@@ -570,7 +658,7 @@ export async function handleAiMessage(input, existingSession, ctx) {
     knownName = knownName || validateName(ctx.profileName);
 
     const history = [...(session.history || []), { role: 'user', content: inputToText(input) || '(empty message)' }];
-    const system = buildSystemPrompt({ restaurant: ctx.restaurant, config: ctx.config, waId: ctx.waId, knownName, now: ctx.now });
+    const system = buildSystemPrompt({ restaurant: ctx.restaurant, config: ctx.config, waId: ctx.waId, knownName, now: ctx.now, session });
     let lastBooking = session.lastBooking || null;
 
     try {

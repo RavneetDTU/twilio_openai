@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:whatsapp": "node --test test/whatsapp/*.test.js",
+    "import:sheet-restaurants": "node scripts/import-sheet-restaurants.js",
     "start": "nodemon server.js"
   },
   "author": "",
