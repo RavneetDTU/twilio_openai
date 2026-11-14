@@ -34,6 +34,7 @@ export function getWhatsAppConfig() {
     return {
         token: process.env.WA_TOKEN || '',
         phoneId: process.env.WA_PHONE_ID || '',
+        wabaId: process.env.WA_WABA_ID || '',
         graphVersion: process.env.GRAPH_VERSION || DEFAULT_GRAPH_VERSION,
         verifyToken: process.env.VERIFY_TOKEN || '',
         appSecret: process.env.APP_SECRET || '',

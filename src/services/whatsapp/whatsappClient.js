@@ -80,7 +80,10 @@ export function createWhatsAppClient({ fetchImpl = fetch, getConfig = getWhatsAp
                     `❌ [WhatsApp] Graph API ${label} failed (${response.status}) ` +
                     `code=${err.code ?? '-'} subcode=${err.error_subcode ?? '-'}: ${err.message || 'unknown error'}`
                 );
-                return { ok: false, status: response.status, error: err.message || `HTTP ${response.status}` };
+                const result = { ok: false, status: response.status, error: err.message || `HTTP ${response.status}` };
+                if (err.code != null) result.code = err.code;
+                if (err.error_subcode != null) result.subcode = err.error_subcode;
+                return result;
             }
 
             return { ok: true, messageId: data?.messages?.[0]?.id || null };
@@ -153,6 +156,16 @@ export function createWhatsAppClient({ fetchImpl = fetch, getConfig = getWhatsAp
                     parameters: params.map((value) => ({ type: 'text', text: String(value ?? '') })),
                 }];
             }
+            return post({ to: toRecipient(to), type: 'template', template }, `template "${name}"`);
+        },
+
+        /**
+         * Template send with explicit Meta components (header/body/buttons).
+         * Booking code keeps using sendTemplate; marketing uses this.
+         */
+        sendTemplateMessage(to, { name, languageCode = 'en', components = [] }) {
+            const template = { name, language: { code: languageCode } };
+            if (components.length > 0) template.components = components;
             return post({ to: toRecipient(to), type: 'template', template }, `template "${name}"`);
         },
 

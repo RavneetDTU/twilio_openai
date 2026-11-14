@@ -19,6 +19,7 @@ import logger from '../utils/logger.js';
 import { createAvailabilityProvider } from '../services/whatsapp/whatsappAvailability.js';
 import { createBookingAdapter } from '../services/whatsapp/whatsappBookingAdapter.js';
 import whatsappClient from '../services/whatsapp/whatsappClient.js';
+import { createFirestoreInboxStore, createInboxRecorder, wrapWhatsAppClient } from '../services/whatsapp/whatsappInbox.js';
 import { getWhatsAppConfig } from '../services/whatsapp/whatsappConfig.js';
 import { createContactService } from '../services/whatsapp/whatsappContactService.js';
 import { processWhatsAppWebhook, restaurantFromTenant } from '../services/whatsapp/whatsappProcessor.js';
@@ -28,6 +29,7 @@ import {
 } from '../services/whatsapp/whatsappRestaurantDirectory.js';
 import { createFirestoreSessionStore } from '../services/whatsapp/whatsappSessionStore.js';
 import { safeCompare, verifyWhatsAppSignature } from '../services/whatsapp/whatsappSignature.js';
+import { createMarketingBridge } from '../services/marketing/bridge.js';
 
 const router = express.Router();
 
@@ -41,15 +43,34 @@ async function loadRestaurant(id) {
 let deps = null;
 function getDeps() {
     if (!deps) {
+        const inboxStore = createFirestoreInboxStore(db);
+        const inbox = createInboxRecorder(inboxStore, { phoneNumberId: getWhatsAppConfig().phoneId });
         deps = {
             store: createFirestoreSessionStore(db),
-            client: whatsappClient,
+            client: wrapWhatsAppClient(whatsappClient, () => inbox),
+            inbox,
             availability: createAvailabilityProvider(),
             booking: createBookingAdapter({
                 getAvailableCapacityForDate,
                 createManualBooking: (...args) => manualBookingService.createManualBooking(...args),
                 paymentBaseUrl: smsService.paymentBaseUrl,
                 getConfig: getWhatsAppConfig,
+                onBooked: ({ restaurant, waId, data, paymentId, bookingAmount }) => inbox.attachBooking({
+                    phoneNumberId: getWhatsAppConfig().phoneId,
+                    restaurantId: restaurant.id,
+                    waId,
+                    name: data?.name,
+                    booking: {
+                        paymentId,
+                        date: data?.date,
+                        time: data?.time,
+                        guests: data?.guests,
+                        name: data?.name,
+                        status: 'booked',
+                        paymentStatus: bookingAmount > 0 ? 'pending' : 'not_required',
+                        bookingAmount,
+                    },
+                }),
             }),
             contacts: createContactService({ db, FieldValue: admin.firestore.FieldValue }),
             directory: createRestaurantDirectory({ listTenants, getTenantById }),
@@ -58,6 +79,7 @@ function getDeps() {
             getConfig: getWhatsAppConfig,
             ai: process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null,
         };
+        deps.marketing = createMarketingBridge({ db, getBookingDeps: () => deps });
     }
     return deps;
 }

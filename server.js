@@ -23,6 +23,10 @@ import smsRoutes from './src/routes/sms.js';
 import verifyRoutes from './src/routes/verify.js';
 import internalRoutes from './src/routes/internal.js';
 import whatsappWebhookRoutes from './src/routes/whatsappWebhook.js';
+import marketingRoutes from './src/routes/marketing.js';
+import whatsappInboxRoutes from './src/routes/whatsappInbox.js';
+import widgetRoutes from './src/routes/widget.js';
+import { startMarketingWorker } from './src/services/marketing/runtime.js';
 import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services/callService.js';
 import { rejectOpenAICall } from './src/services/openaiCallsService.js';
 import { activeSipSessions } from './src/services/realtimeSipSession.js';
@@ -782,5 +786,11 @@ app.post('/api/restaurant/create', async (req, res) => {
 // Internal BookiOps APIs (service key required) — additive only
 // =============================================================================
 app.use('/api/internal', internalRoutes);
+app.use('/api/marketing', marketingRoutes);
+app.use('/api/inbox/whatsapp', whatsappInboxRoutes);
+app.use('/api/widget', widgetRoutes);
 
-server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+server.listen(PORT, () => {
+    console.log(`Server listening on ${PORT}`);
+    startMarketingWorker();
+});

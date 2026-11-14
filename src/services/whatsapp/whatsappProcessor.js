@@ -14,6 +14,7 @@ import logger from '../../utils/logger.js';
 import { DEFAULT_TIMEZONE } from './whatsappConfig.js';
 import { handleAiMessage } from './whatsappAiAgent.js';
 import { handleMessage } from './whatsappHandlers.js';
+import { inboxContext, inboundBody, inboundMediaId } from './whatsappInbox.js';
 import { bookiHostRestaurant, HOST_RESTAURANT_ID, isHostRestaurantId } from './whatsappRestaurantDirectory.js';
 
 const chains = new Map();
@@ -84,6 +85,17 @@ async function resolveSessionRestaurant(session, metadata, deps, config) {
     return { restaurant: bookiHostRestaurant(config), session };
 }
 
+async function notifyMarketing(deps, method, payload) {
+    const fn = deps.marketing?.[method];
+    if (typeof fn !== 'function') return null;
+    try {
+        return await fn(payload);
+    } catch (error) {
+        logger.error(`❌ [WhatsApp] Marketing ${method} failed: ${error.message}`);
+        return null;
+    }
+}
+
 function logStatuses(statuses = []) {
     for (const status of statuses) {
         if (status?.status !== 'failed') continue;
@@ -124,16 +136,27 @@ async function processMessage(message, metadata, profileName, deps) {
         return;
     }
 
-    const config = deps.getConfig();
-    const aiMode = config.conversationMode !== 'guided' && Boolean(deps.ai);
-    deps.client.markRead(message.id, { typing: aiMode });
-
     let session = null;
     try {
         session = await deps.store.get(waId);
     } catch (error) {
         logger.error(`❌ [WhatsApp] Loading session for ${waId} failed: ${error.message} — starting fresh`);
     }
+
+    const routed = await notifyMarketing(deps, 'routeInbound', {
+        message, input, waId, profileName, session, metadata, deps,
+    });
+    if (routed?.handled) {
+        if (Object.prototype.hasOwnProperty.call(routed, 'session')) {
+            if (routed.session) await deps.store.save(waId, routed.session);
+            else await deps.store.clear(waId);
+        }
+        return;
+    }
+
+    const config = deps.getConfig();
+    const aiMode = config.conversationMode !== 'guided' && Boolean(deps.ai);
+    deps.client.markRead(message.id, { typing: aiMode });
 
     const resolved = await resolveSessionRestaurant(session, metadata, deps, config);
     session = resolved.session;
@@ -161,9 +184,25 @@ async function processMessage(message, metadata, profileName, deps) {
 
     const state = aiMode ? 'ai' : (session?.step || 'new');
     logger.info(`💬 [WhatsApp] ${waId} → ${restaurant.id} mode=${state} input=${input.type}${input.id ? `:${input.id}` : ''}`);
-    const next = aiMode
-        ? await handleAiMessage(input, session, ctx)
-        : await handleMessage(input, session, ctx);
+    const phoneNumberId = metadata?.phone_number_id || null;
+    if (deps.inbox) {
+        const createdAt = message.timestamp ? new Date(Number(message.timestamp) * 1000).toISOString() : new Date().toISOString();
+        await deps.inbox.recordInbound({
+            phoneNumberId,
+            restaurantId: restaurant.id,
+            waId,
+            wamid: message.id,
+            body: inboundBody(message, input),
+            type: message.type || input?.type || 'text',
+            mediaId: inboundMediaId(message),
+            name: profileName,
+            createdAt: Number.isNaN(Date.parse(createdAt)) ? new Date().toISOString() : createdAt,
+        });
+    }
+    const next = await inboxContext.run(
+        { waId, restaurantId: restaurant.id, phoneNumberId, profileName },
+        () => (aiMode ? handleAiMessage(input, session, ctx) : handleMessage(input, session, ctx)),
+    );
 
     if (next) await deps.store.save(waId, next);
     else await deps.store.clear(waId);
@@ -181,9 +220,19 @@ export async function processWhatsAppWebhook(body, deps) {
 
     for (const entry of body.entry || []) {
         for (const change of entry.changes || []) {
+            if (change?.field === 'message_template_status_update') {
+                tasks.push(notifyMarketing(deps, 'applyTemplateStatus', change.value || {}));
+                continue;
+            }
             if (change?.field !== 'messages') continue;
             const value = change.value || {};
             logStatuses(value.statuses);
+            tasks.push(notifyMarketing(deps, 'applyStatuses', value.statuses || []));
+            if (deps.inbox && value.statuses?.length) {
+                tasks.push(Promise.resolve(deps.inbox.applyStatuses(value.statuses)).catch((error) => {
+                    logger.error(`❌ [WhatsApp Inbox] Status update failed: ${error.message}`);
+                }));
+            }
 
             if (phoneId && value.metadata?.phone_number_id && value.metadata.phone_number_id !== phoneId) {
                 logger.warn(`⚠️ [WhatsApp] Message for phone_number_id ${value.metadata.phone_number_id} ignored (WA_PHONE_ID is ${phoneId})`);

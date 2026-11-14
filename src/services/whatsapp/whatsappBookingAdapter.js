@@ -51,12 +51,14 @@ export function depositFor(restaurant, guests) {
  * @param {Function} deps.createManualBooking          manualBookingService.createManualBooking
  * @param {string}   deps.paymentBaseUrl               smsService.paymentBaseUrl
  * @param {Function} [deps.getConfig]                  () => ({ alsoSendSms })
+ * @param {Function} [deps.onBooked]                   optional inbox hook; failures are logged
  */
 export function createBookingAdapter({
     getAvailableCapacityForDate,
     createManualBooking,
     paymentBaseUrl,
     getConfig = () => ({ alsoSendSms: false }),
+    onBooked = null,
 }) {
     async function checkSlot(restaurantId, date, time, guests, restaurant = null) {
         if (isSheetImportedRestaurantId(restaurantId)) {
@@ -129,6 +131,13 @@ export function createBookingAdapter({
             const bookingAmount = depositFor(restaurant, data.guests);
             const paymentLink = bookingAmount > 0 ? `${paymentBaseUrl}/payment/${result.paymentId}` : null;
             logger.info(`✅ [WhatsApp] Booking ${result.paymentId} created for +${waId} at ${restaurant.id}`);
+            if (typeof onBooked === 'function') {
+                try {
+                    await onBooked({ restaurant, waId, data, paymentId: result.paymentId, bookingAmount, paymentLink });
+                } catch (hookError) {
+                    logger.error(`❌ [WhatsApp] Inbox booking link failed for ${result.paymentId}: ${hookError.message}`);
+                }
+            }
             return { status: 'booked', paymentId: result.paymentId, bookingAmount, paymentLink };
         } catch (error) {
             logger.error(`❌ [WhatsApp] Booking failed for +${waId} at ${restaurant.id}: ${error.message}`);
