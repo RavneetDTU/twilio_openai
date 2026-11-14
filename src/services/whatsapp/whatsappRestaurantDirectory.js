@@ -219,8 +219,10 @@ export function pickFromOffered(input, offered = []) {
     return null;
 }
 
-export function suggestionText(entries) {
-    const lines = ["Thanks! I've found a few places that might suit what you're looking for.", ''];
+export function suggestionText(entries, options = {}) {
+    const intro = options.intro || "Thanks! I've found a few places that might suit what you're looking for.";
+    const close = options.close || "Take a look and let me know which one catches your eye. I'll help you with the reservation.";
+    const lines = [intro, ''];
     (entries || []).forEach((entry, i) => {
         lines.push(`${i + 1}. ${entry.name}`);
         const loc = locationLine(entry);
@@ -228,7 +230,7 @@ export function suggestionText(entries) {
         const food = entry.cuisine || entry.description;
         if (food) lines.push(`   🍽️ ${food}`);
     });
-    lines.push('', "Take a look and let me know which one catches your eye. I'll help you with the reservation.");
+    lines.push('', close);
     return lines.join('\n');
 }
 
