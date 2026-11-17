@@ -27,6 +27,7 @@ function matches(doc, filters) {
 function api(adapter) {
     return {
         get: (col, id) => adapter.get(col, id),
+        getMany: (col, ids) => adapter.getMany(col, ids),
         put: (col, id, data) => adapter.put(col, id, data),
         delete: (col, id) => adapter.delete(col, id),
         updateIf: (col, id, pred, patch) => adapter.updateIf(col, id, pred, patch),
@@ -71,6 +72,14 @@ export function createMemoryMarketingStore() {
             const doc = maps[col].get(id);
             return doc ? structuredClone(doc) : null;
         },
+        async getMany(col, ids) {
+            const found = new Map();
+            for (const id of ids) {
+                const doc = maps[col].get(id);
+                if (doc) found.set(id, structuredClone(doc));
+            }
+            return found;
+        },
         async put(col, id, data) {
             maps[col].set(id, structuredClone({ ...data, id }));
         },
@@ -104,6 +113,18 @@ export function createFirestoreMarketingStore(db) {
         async get(col, id) {
             const snap = await ref(col).doc(String(id)).get();
             return snap.exists ? { id: snap.id, ...snap.data() } : null;
+        },
+        async getMany(col, ids) {
+            const unique = [...new Set(ids.filter(Boolean).map(String))];
+            const found = new Map();
+            for (let index = 0; index < unique.length; index += 100) {
+                const chunk = unique.slice(index, index + 100);
+                const snaps = await db.getAll(...chunk.map((id) => ref(col).doc(id)));
+                for (const snap of snaps) {
+                    if (snap.exists) found.set(snap.id, { id: snap.id, ...snap.data() });
+                }
+            }
+            return found;
         },
         async put(col, id, data) {
             await ref(col).doc(String(id)).set({ ...data, id: String(id) });

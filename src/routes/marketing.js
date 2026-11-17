@@ -98,6 +98,14 @@ router.patch('/:restaurantId/contacts/:contactId', async (req, res) => {
     } catch (error) { fail(res, error); }
 });
 
+router.post('/:restaurantId/contacts/:contactId/notes', async (req, res) => {
+    try {
+        const ctx = await scope(req, res);
+        if (!ctx) return;
+        res.status(201).json(await marketing.addContactNote(ctx.store, ctx.restaurantId, req.params.contactId, req.body || {}));
+    } catch (error) { fail(res, error); }
+});
+
 router.put('/:restaurantId/contacts/:contactId/tags', async (req, res) => {
     try {
         const ctx = await scope(req, res);
@@ -216,6 +224,22 @@ router.get('/:restaurantId/campaigns/:campaignId', async (req, res) => {
     } catch (error) { fail(res, error); }
 });
 
+router.patch('/:restaurantId/campaigns/:campaignId/sequence', async (req, res) => {
+    try {
+        const ctx = await scope(req, res);
+        if (!ctx) return;
+        res.json(await marketing.saveCampaignSequence(ctx.store, ctx.restaurantId, req.params.campaignId, req.body || {}));
+    } catch (error) { fail(res, error); }
+});
+
+router.delete('/:restaurantId/campaigns/:campaignId/leads/:recipientId', async (req, res) => {
+    try {
+        const ctx = await scope(req, res);
+        if (!ctx) return;
+        res.json(await marketing.removeCampaignLead(ctx.store, ctx.restaurantId, req.params.campaignId, req.params.recipientId));
+    } catch (error) { fail(res, error); }
+});
+
 router.patch('/:restaurantId/campaigns/:campaignId', async (req, res) => {
     try {
         const ctx = await scope(req, res);
@@ -266,7 +290,11 @@ router.get('/:restaurantId/campaigns/:campaignId/recipients', async (req, res) =
     try {
         const ctx = await scope(req, res);
         if (!ctx) return;
-        res.json({ recipients: await marketing.listRecipients(ctx.store, ctx.restaurantId, req.params.campaignId, req.query) });
+        const [recipients, total] = await Promise.all([
+            marketing.listRecipients(ctx.store, ctx.restaurantId, req.params.campaignId, req.query),
+            marketing.countCampaignLeads(ctx.store, ctx.restaurantId, req.params.campaignId),
+        ]);
+        res.json({ recipients, total });
     } catch (error) { fail(res, error); }
 });
 
