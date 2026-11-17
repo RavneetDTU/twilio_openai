@@ -62,18 +62,30 @@ router.post('/chat', async (req, res) => {
         const existing = await ownedConversation(sessionId, visitorKey);
         const websiteDomain = String(req.body?.websiteDomain || '').slice(0, 120);
         if (req.body?.kickoff === true && !existing) {
+            const requested = cleanRestaurantId(req.body?.restaurantId);
+            let restaurantId = 'public';
+            let restaurantName = '';
+            let agent = {};
+            if (requested) {
+                const tenant = await getTenantById(requested);
+                if (!tenant || tenant.isActive === false) return res.status(404).json({ error: 'Restaurant not found' });
+                restaurantId = String(tenant.restaurantId);
+                restaurantName = tenant.name || '';
+                agent = { restaurantId, restaurantName };
+            }
             const welcome = welcomeMessage();
             const saved = await store.saveConversation({
                 sessionId,
-                restaurantId: 'public',
+                restaurantId,
                 visitorKey,
                 channel: 'chat',
                 trusted: true,
                 websiteDomain,
+                restaurantName,
                 events: [{ id: eventId(), at: new Date().toISOString(), from: 'assistant', text: welcome, kind: 'chat' }],
-                agent: {},
+                agent,
             });
-            return res.json({ message: { role: 'assistant', content: welcome }, sessionId: saved.sessionId, restaurantName: '' });
+            return res.json({ message: { role: 'assistant', content: welcome }, sessionId: saved.sessionId, restaurantName });
         }
         if (!existing) return res.status(404).json({ error: 'Conversation not found' });
         const text = String(req.body?.text || '').trim().slice(0, 2000);
