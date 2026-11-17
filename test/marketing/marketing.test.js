@@ -12,6 +12,7 @@ import {
 } from '../../src/services/marketing/engine.js';
 import { applyTemplateUpdate, routeInbound } from '../../src/services/marketing/inbound.js';
 import {
+    addContactNote,
     assignContactGroup,
     createCampaign,
     exportContacts,
@@ -22,6 +23,9 @@ import {
     launchCampaign,
     listContacts,
     listConversations,
+    listRecipients,
+    removeCampaignLead,
+    saveCampaignSequence,
     optOutContact,
     saveContact,
     saveTemplate,
@@ -355,6 +359,59 @@ describe('campaign execution', () => {
         const again = await importCampaignLeads(store, '1', campaignId, { csv, confirm: true, optInSource: 'stand form' });
         assert.equal(again.queued, 0);
         await assert.rejects(() => importCampaignLeads(store, '1', campaignId, { csv, confirm: false, optInSource: 'stand form' }), /opted in/);
+    });
+
+    it('keeps each campaign’s imported leads separate and only accepts approved templates', async () => {
+        const store = createMemoryMarketingStore();
+        const template = await saveTemplate(store, '1', {
+            name: 'offer', category: 'MARKETING', language: 'en', body: 'Hello', examples: [],
+        });
+        await store.put('templates', template.id, { ...(await store.get('templates', template.id)), status: 'approved' });
+        const first = await createCampaign(store, '1', { name: 'Campaign A', kind: 'manual' });
+        const second = await createCampaign(store, '1', { name: 'Campaign B', kind: 'manual' });
+        await importCampaignLeads(store, '1', first.id, {
+            csv: 'First name,Last name,Phone number\nAda,One,+27820001001\n',
+            confirm: true,
+            optInSource: 'campaign csv',
+        });
+        await importCampaignLeads(store, '1', second.id, {
+            csv: 'First name,Last name,Phone number\nBea,Two,+27820001002\nBen,Three,+27820001003\n',
+            confirm: true,
+            optInSource: 'campaign csv',
+        });
+        const leadsA = await listRecipients(store, '1', first.id);
+        const leadsB = await listRecipients(store, '1', second.id);
+        assert.equal(leadsA.length, 1);
+        assert.equal(leadsB.length, 2);
+        const saved = await saveCampaignSequence(store, '1', first.id, { slot: 'initial', templateId: template.id });
+        assert.equal(saved.slots.initial.templateId, template.id);
+        assert.equal(saved.templateId, template.id);
+        const pending = await saveTemplate(store, '1', {
+            name: 'wait', category: 'MARKETING', language: 'en', body: 'Hi', examples: [],
+        });
+        await assert.rejects(
+            () => saveCampaignSequence(store, '1', first.id, { slot: 'reminder', templateId: pending.id }),
+            /approved/,
+        );
+        await removeCampaignLead(store, '1', second.id, leadsB[0].id);
+        assert.equal((await listRecipients(store, '1', second.id)).length, 1);
+        assert.equal((await listContacts(store, '1', {})).total, 3);
+        const launched = await launchCampaign(store, '1', first.id, { confirm: true, restaurantName: "Billy's" });
+        assert.equal(launched.summary.eligible, 1);
+        assert.equal((await listRecipients(store, '1', second.id)).length, 1);
+    });
+
+    it('saves a note on the contact and keeps it when the name changes', async () => {
+        const store = createMemoryMarketingStore();
+        const contact = await saveContact(store, '1', { name: 'Ada', phone: '+27820001001', optIn: true, optInSource: 'form' });
+        const noted = await addContactNote(store, '1', contact.id, { author: 'billy@gmail.com', body: 'Called back' });
+        assert.equal(noted.notes.length, 1);
+        assert.equal(noted.notes[0].body, 'Called back');
+        assert.equal(noted.notes[0].author, 'billy@gmail.com');
+        const renamed = await saveContact(store, '1', { name: 'Ada One', phone: '+27820001001' }, contact.id);
+        assert.equal(renamed.name, 'Ada One');
+        assert.equal(renamed.notes.length, 1);
+        await assert.rejects(() => addContactNote(store, '1', contact.id, { body: '   ' }), /note/);
     });
 });
 

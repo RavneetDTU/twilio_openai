@@ -147,13 +147,100 @@ export async function listContacts(store, restaurantId, query = {}) {
     const all = await store.list('contacts', [restaurant]);
     const filtered = filterContacts(all, query);
     const tags = [...new Set(all.flatMap((contact) => contact.tags || []))].sort().slice(0, 200);
+    let rows = filtered.map(publicContact);
+    if (rows.length <= 500) rows = await attachCampaignNames(store, restaurantId, rows);
+    const summary = summarizeLeadActivity(rows);
+    if (query.campaign) {
+        rows = rows.filter((contact) => (contact.campaignIds || []).includes(query.campaign));
+    }
+    if (query.status) rows = rows.filter((contact) => contact.activityStatus === query.status);
+    rows = sortLeadActivity(rows, query.sort);
     return {
-        contacts: filtered.slice(offset, offset + limit).map(publicContact),
-        total: filtered.length,
+        contacts: rows.slice(offset, offset + limit),
+        total: rows.length,
         offset,
         limit,
         tags,
+        summary,
     };
+}
+
+function activityLabel(status, contact) {
+    if (contact?.optIn === false) return 'OPT OUT';
+    if (!status || status === 'member' || status === 'pending') return 'New Lead';
+    if (status === 'sent' || status === 'delivered' || status === 'sending') return 'Template Sent';
+    if (status === 'read') return 'Read';
+    if (status === 'replied') return 'Responded';
+    if (status === 'failed') return 'Failed';
+    if (status === 'opted_out' || status === 'suppressed') return 'OPT OUT';
+    return 'New Lead';
+}
+
+function summarizeLeadActivity(rows) {
+    return {
+        total: rows.length,
+        newLeads: rows.filter((row) => row.activityStatus === 'New Lead').length,
+        templateSent: rows.filter((row) => row.activityStatus === 'Template Sent').length,
+        unread: rows.filter((row) => (row.unread || 0) > 0).length,
+        responded: rows.filter((row) => row.activityStatus === 'Responded').length,
+    };
+}
+
+function sortLeadActivity(rows, sort) {
+    const stamp = (row, field) => String(row[field] || '');
+    const copy = [...rows];
+    if (sort === 'created_asc') return copy.sort((a, b) => stamp(a, 'createdAt').localeCompare(stamp(b, 'createdAt')));
+    if (sort === 'created_desc') return copy.sort((a, b) => stamp(b, 'createdAt').localeCompare(stamp(a, 'createdAt')));
+    if (sort === 'name_asc') return copy.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    if (sort === 'last_reply_asc') return copy.sort((a, b) => stamp(a, 'lastReplyAt').localeCompare(stamp(b, 'lastReplyAt')));
+    if (sort === 'last_reply_desc') return copy.sort((a, b) => stamp(b, 'lastReplyAt').localeCompare(stamp(a, 'lastReplyAt')));
+    return copy.sort((a, b) => stamp(b, 'lastReplyAt').localeCompare(stamp(a, 'lastReplyAt')) || stamp(b, 'createdAt').localeCompare(stamp(a, 'createdAt')));
+}
+
+async function attachCampaignNames(store, restaurantId, contacts) {
+    if (!contacts.length) return contacts;
+    const [recipients, campaigns, conversations] = await Promise.all([
+        store.list('recipients', [{ field: 'restaurantId', op: '==', value: restaurantId }]),
+        store.list('campaigns', [{ field: 'restaurantId', op: '==', value: restaurantId }]),
+        store.list('conversations', [{ field: 'restaurantId', op: '==', value: restaurantId }]),
+    ]);
+    const names = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]));
+    const membership = new Map();
+    for (const row of recipients) {
+        if (!row.contactId) continue;
+        const current = membership.get(row.contactId) || { campaigns: [], campaignIds: [], status: null, updatedAt: '' };
+        const label = names.get(row.campaignId);
+        if (label && !current.campaigns.includes(label)) {
+            current.campaigns.push(label);
+            current.campaignIds.push(row.campaignId);
+        }
+        const stamp = String(row.updatedAt || row.createdAt || '');
+        if (stamp >= current.updatedAt) {
+            current.status = row.status || null;
+            current.updatedAt = stamp;
+        }
+        membership.set(row.contactId, current);
+    }
+    const byContact = new Map();
+    const byPhone = new Map();
+    for (const conversation of conversations) {
+        if (conversation.contactId) byContact.set(conversation.contactId, conversation);
+        if (conversation.phoneDigits) byPhone.set(conversation.phoneDigits, conversation);
+    }
+    return contacts.map((contact) => {
+        const member = membership.get(contact.id) || { campaigns: [], campaignIds: [], status: null };
+        const conversation = byContact.get(contact.id) || byPhone.get(contact.phoneDigits) || null;
+        return {
+            ...contact,
+            campaigns: member.campaigns,
+            campaignIds: member.campaignIds,
+            activityStatus: activityLabel(member.status, contact),
+            lastReplyAt: conversation?.updatedAt || null,
+            conversationId: conversation?.id || null,
+            handler: conversation?.handler || null,
+            unread: conversation?.unread || 0,
+        };
+    });
 }
 
 export async function assignContactGroup(store, restaurantId, { contactIds, tag, allMatching, q, optIn } = {}) {
@@ -214,11 +301,29 @@ export async function saveContact(store, restaurantId, input, contactId = null) 
         lastOutboundAt: existing?.lastOutboundAt || null,
         lastInteractionAt: existing?.lastInteractionAt || null,
         engagement: existing?.engagement || 'none',
+        notes: Array.isArray(existing?.notes) ? existing.notes : [],
         createdAt: existing?.createdAt || now,
         updatedAt: now,
     };
     if (existing && existing.id !== next.id) await store.delete('contacts', existing.id);
     await store.put('contacts', next.id, next);
+    return next;
+}
+
+export async function addContactNote(store, restaurantId, contactId, input = {}) {
+    const contact = await store.get('contacts', contactId);
+    if (!contact || contact.restaurantId !== restaurantId) throw new MarketingError(404, 'not_found', 'Contact not found.');
+    const body = String(input.body || '').trim();
+    if (!body) throw new MarketingError(400, 'empty', 'Write a note before saving.');
+    if (body.length > 2000) throw new MarketingError(400, 'too_long', 'Keep the note under 2,000 characters.');
+    const note = {
+        id: randomUUID(),
+        author: String(input.author || '').trim().slice(0, 120),
+        body,
+        createdAt: nowIso(),
+    };
+    const next = { ...contact, notes: [...(contact.notes || []), note], updatedAt: note.createdAt };
+    await store.put('contacts', contactId, next);
     return next;
 }
 
@@ -484,6 +589,16 @@ export async function createCampaign(store, restaurantId, input) {
         audience: input.audience || { type: 'all' },
         variableMapping: input.variableMapping || [],
         sendAt: input.sendAt || null,
+        kind: input.kind === 'meta' ? 'meta' : (input.kind === 'manual' ? 'manual' : null),
+        externalId: String(input.externalId || '').trim(),
+        autoMessage: input.autoMessage !== false,
+        membership: input.kind === 'meta' || input.kind === 'manual' || input.membership === 'imported' ? 'imported' : null,
+        slots: {
+            initial: { templateId: input.templateId || null },
+            reminder: { templateId: null },
+            missed: { templateId: null },
+            followUp: { templateId: null, delayHours: 24, finalTemplateId: null, finalDelayHours: 48 },
+        },
         status: 'draft',
         metrics: null,
         summary: null,
@@ -514,6 +629,57 @@ export async function updateCampaign(store, restaurantId, campaignId, input) {
     return next;
 }
 
+function blankSlots(templateId = null) {
+    return {
+        initial: { templateId: templateId || null },
+        reminder: { templateId: null },
+        missed: { templateId: null },
+        followUp: { templateId: null, delayHours: 24, finalTemplateId: null, finalDelayHours: 48 },
+    };
+}
+
+async function approvedTemplate(store, restaurantId, templateId, { marketing = false } = {}) {
+    if (!templateId) throw new MarketingError(400, 'template', 'Choose an approved WhatsApp template.');
+    const template = await store.get('templates', templateId);
+    if (!template || template.restaurantId !== restaurantId) throw new MarketingError(404, 'not_found', 'Template not found.');
+    if (template.status !== 'approved') throw new MarketingError(400, 'template', 'Only an approved WhatsApp template can be used.');
+    if (marketing && String(template.category).toUpperCase() !== 'MARKETING') {
+        throw new MarketingError(400, 'template', 'The first message must be an approved marketing template.');
+    }
+    return template;
+}
+
+export async function saveCampaignSequence(store, restaurantId, campaignId, input = {}) {
+    const campaign = await ownedCampaign(store, restaurantId, campaignId);
+    const slots = { ...blankSlots(campaign.templateId), ...(campaign.slots || {}) };
+    slots.followUp = { ...blankSlots().followUp, ...(campaign.slots?.followUp || {}), ...(slots.followUp || {}) };
+    const next = { ...campaign, slots, updatedAt: nowIso() };
+    if (input.autoMessage != null) next.autoMessage = Boolean(input.autoMessage);
+    if (input.slot === 'initial' || input.slot === 'reminder' || input.slot === 'missed') {
+        const template = await approvedTemplate(store, restaurantId, input.templateId, { marketing: input.slot === 'initial' });
+        next.slots[input.slot] = { templateId: template.id };
+        if (input.slot === 'initial') next.templateId = template.id;
+    } else if (input.slot === 'followUp') {
+        const first = await approvedTemplate(store, restaurantId, input.templateId);
+        const finalTemplate = input.finalTemplateId
+            ? await approvedTemplate(store, restaurantId, input.finalTemplateId)
+            : null;
+        const delayHours = [24, 48, 72].includes(Number(input.delayHours)) ? Number(input.delayHours) : 24;
+        const finalDelayHours = [24, 48, 72].includes(Number(input.finalDelayHours)) ? Number(input.finalDelayHours) : 48;
+        next.slots.followUp = {
+            templateId: first.id,
+            delayHours,
+            finalTemplateId: finalTemplate?.id || null,
+            finalDelayHours,
+        };
+    } else if (input.autoMessage == null) {
+        throw new MarketingError(400, 'slot', 'Choose a template slot.');
+    }
+    await store.put('campaigns', campaignId, next);
+    await audit(store, restaurantId, 'campaign.sequence', { campaignId, slot: input.slot || 'autoMessage' });
+    return next;
+}
+
 async function ownedCampaign(store, restaurantId, campaignId) {
     const campaign = await store.get('campaigns', campaignId);
     if (!campaign || campaign.restaurantId !== restaurantId) throw new MarketingError(404, 'not_found', 'Campaign not found.');
@@ -529,6 +695,53 @@ export async function launchCampaign(store, restaurantId, campaignId, { confirm,
     const template = await store.get('templates', campaign.templateId);
     if (!template || template.restaurantId !== restaurantId || !campaignIsSendable(template)) {
         throw new MarketingError(400, 'template', 'Choose an approved marketing template before launching.');
+    }
+    if (campaign.membership === 'imported') {
+        const members = await store.list('recipients', [{ field: 'campaignId', op: '==', value: campaign.id }]);
+        const eligible = [];
+        for (const row of members) {
+            if (row.restaurantId !== restaurantId || row.wamid) continue;
+            if (!['member', 'pending', 'failed'].includes(row.status)) continue;
+            const contact = row.contactId ? await store.get('contacts', row.contactId) : null;
+            if (!contact || contact.optIn === false || contact.restaurantId !== restaurantId) continue;
+            eligible.push(contact);
+        }
+        if (eligible.length === 0) throw new MarketingError(400, 'audience', 'Import leads into this campaign before launching.');
+        const mapped = bodyParameters(template, campaign.variableMapping, eligible[0], restaurantName);
+        if (!mapped.ok) throw new MarketingError(400, mapped.reason, 'Map every template variable before launching.');
+        const stamp = nowIso();
+        const pendingRows = [];
+        for (const contact of eligible) {
+            const id = recipientDocId(campaign.id, contact.phoneDigits);
+            const existing = await store.get('recipients', id);
+            pendingRows.push({ status: 'pending' });
+            await store.put('recipients', id, {
+                id,
+                campaignId: campaign.id,
+                restaurantId,
+                contactId: contact.id,
+                phoneDigits: contact.phoneDigits,
+                phoneE164: contact.phoneE164,
+                status: 'pending',
+                attempts: existing?.attempts || 0,
+                wamid: null,
+                createdAt: existing?.createdAt || stamp,
+                updatedAt: stamp,
+            });
+        }
+        const sendAt = campaign.sendAt && Date.parse(campaign.sendAt) > Date.now() ? campaign.sendAt : null;
+        const next = {
+            ...campaign,
+            restaurantName: restaurantName || campaign.restaurantName || '',
+            status: sendAt ? 'scheduled' : 'queued',
+            metrics: recount(pendingRows),
+            summary: { eligible: eligible.length },
+            launchedAt: stamp,
+            updatedAt: stamp,
+        };
+        await store.put('campaigns', campaign.id, next);
+        await audit(store, restaurantId, 'campaign.launch', { campaignId, eligible: eligible.length, status: next.status });
+        return { campaign: next, summary: next.summary };
     }
     const preview = await previewAudience(store, restaurantId, campaign.audience);
     if (preview.eligible.length === 0) throw new MarketingError(400, 'audience', 'No eligible opted-in contacts match this audience.');
@@ -645,34 +858,53 @@ export async function setCampaignControl(store, restaurantId, campaignId, action
 }
 
 export async function getCampaign(store, restaurantId, campaignId) {
-    const campaign = await ownedCampaign(store, restaurantId, campaignId);
-    if (campaign.metrics?.byStatus) return campaign;
-    const recipients = await store.list('recipients', [{ field: 'campaignId', op: '==', value: campaignId }]);
-    return { ...campaign, metrics: recount(recipients) };
+    return ownedCampaign(store, restaurantId, campaignId);
 }
 
 export async function listCampaigns(store, restaurantId) {
     const campaigns = await store.list('campaigns', [{ field: 'restaurantId', op: '==', value: restaurantId }]);
-    return campaigns.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const sorted = campaigns.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return Promise.all(sorted.map(async (campaign) => {
+        const leadCount = campaign.leadCount ?? await store.count('recipients', [{ field: 'campaignId', op: '==', value: campaign.id }]);
+        return { ...campaign, leadCount };
+    }));
 }
 
 export async function listRecipients(store, restaurantId, campaignId, query = {}) {
     await ownedCampaign(store, restaurantId, campaignId);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
+    const offset = Math.max(0, Number(query.offset) || 0);
     const filters = [{ field: 'campaignId', op: '==', value: campaignId }];
     if (query.status) filters.push({ field: 'status', op: '==', value: query.status });
     const rows = await store.query('recipients', {
         filters,
         orderBy: { field: 'createdAt', direction: 'desc' },
         limit,
+        offset,
     });
-    const named = [];
-    for (const row of rows) {
-        if (row.restaurantId !== restaurantId) continue;
-        const contact = row.contactId ? await store.get('contacts', row.contactId) : null;
-        named.push({ ...row, name: contact?.name || '' });
+    const contacts = await store.getMany('contacts', rows.map((row) => row.contactId));
+    return rows
+        .filter((row) => row.restaurantId === restaurantId)
+        .map((row) => ({ ...row, name: contacts.get(row.contactId)?.name || row.name || '' }));
+}
+
+export async function countCampaignLeads(store, restaurantId, campaignId) {
+    await ownedCampaign(store, restaurantId, campaignId);
+    return store.count('recipients', [{ field: 'campaignId', op: '==', value: campaignId }]);
+}
+
+export async function removeCampaignLead(store, restaurantId, campaignId, recipientId) {
+    const campaign = await ownedCampaign(store, restaurantId, campaignId);
+    const row = await store.get('recipients', recipientId);
+    if (!row || row.campaignId !== campaign.id || row.restaurantId !== restaurantId) {
+        throw new MarketingError(404, 'not_found', 'That lead is not in this campaign.');
     }
-    return named;
+    if (row.wamid || ['sent', 'delivered', 'read', 'replied', 'sending'].includes(row.status)) {
+        throw new MarketingError(409, 'sent', 'This person already received the campaign message.');
+    }
+    await store.delete('recipients', recipientId);
+    await audit(store, restaurantId, 'campaign.remove_lead', { campaignId, recipientId });
+    return { removed: true };
 }
 
 export async function importCampaignLeads(store, restaurantId, campaignId, { csv, confirm, optInSource } = {}) {
@@ -708,7 +940,27 @@ export async function importCampaignLeads(store, restaurantId, campaignId, { csv
                 optInSource: source,
             });
             imported += 1;
-            if (!canQueue) continue;
+            if (!canQueue) {
+                const id = recipientDocId(campaign.id, contact.phoneDigits);
+                const existing = await store.get('recipients', id);
+                if (!existing) {
+                    const stamp = nowIso();
+                    await store.put('recipients', id, {
+                        id,
+                        campaignId: campaign.id,
+                        restaurantId,
+                        contactId: contact.id,
+                        phoneDigits: contact.phoneDigits,
+                        phoneE164: contact.phoneE164,
+                        status: 'member',
+                        attempts: 0,
+                        wamid: null,
+                        createdAt: stamp,
+                        updatedAt: stamp,
+                    });
+                }
+                continue;
+            }
             const id = recipientDocId(campaign.id, contact.phoneDigits);
             const existing = await store.get('recipients', id);
             if (existing?.wamid || ['sent', 'delivered', 'read', 'replied', 'sending', 'pending'].includes(existing?.status)) {
