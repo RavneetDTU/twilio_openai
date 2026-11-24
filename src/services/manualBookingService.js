@@ -8,6 +8,15 @@ import logger from '../utils/logger.js';
 
 const RESERVATION_API_BASE = 'https://mybookiapis.booki.co.za/restaurants';
 
+function bookingIdFromReservation(result) {
+    if (!result || typeof result !== 'object') return null;
+    if (result.booking_id) return String(result.booking_id);
+    for (const value of Object.values(result)) {
+        if (value && typeof value === 'object' && value.booking_id) return String(value.booking_id);
+    }
+    return null;
+}
+
 class ManualBookingService {
     /**
      * Creates a manual booking, saves it to Firestore, and sends an SMS payment link.
@@ -26,6 +35,8 @@ class ManualBookingService {
         if (!name || !phoneNo || !guests) {
             throw new Error('Missing required booking fields: name, phoneNo, or guests');
         }
+
+        let bookingId = null;
 
         // 1. Get deposit amount from restaurant config
         let depositAmount = 0;
@@ -112,7 +123,13 @@ class ManualBookingService {
                     const errorText = await response.text();
                     logger.error(`❌ Reservation API error (${response.status}): ${errorText}`);
                 } else {
-                    logger.info(`✅ Manual Reservation API success`);
+                    const raw = await response.text();
+                    try {
+                        bookingId = bookingIdFromReservation(raw ? JSON.parse(raw) : null);
+                    } catch {
+                        bookingId = null;
+                    }
+                    logger.info(`✅ Manual Reservation API success${bookingId ? ` booking_id=${bookingId}` : ''}`);
                 }
             } catch (apiError) {
                 logger.error(`❌ Manual Reservation API request failed: ${apiError.message}`);
@@ -175,6 +192,7 @@ class ManualBookingService {
                 ? 'Booking saved and SMS sent'
                 : 'Booking saved but SMS failed',
             paymentId,
+            bookingId,
             smsStatus,
             smsDetails: smsResult,
             emailStatus: emailResult.success ? 'Success' : 'Failed',

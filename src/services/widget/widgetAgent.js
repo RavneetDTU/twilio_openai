@@ -391,7 +391,7 @@ function listReply(page, area, more, continued) {
     return suggestionText(page, { intro, close });
 }
 
-async function runTool(name, args, state, visitorTexts, sessionId) {
+async function runTool(name, args, state, visitorTexts, sessionId, source = 'widget_chat') {
     const next = { ...state, offered: state.offered || [] };
     if (name === 'find_restaurants') {
         const query = String(args.query || '').trim() || (!next.restaurantId ? String(next.detectedArea || '').trim() : '');
@@ -543,9 +543,9 @@ async function runTool(name, args, state, visitorTexts, sessionId) {
                 time: time.hm,
                 notes: requests || undefined,
             }, {
-                source: 'widget',
+                source: source === 'widget_call' ? 'widget_call' : 'widget_chat',
                 sittingId: check.sittingId ?? null,
-                extraFields: { channel: 'widget', widgetSessionId: sessionId },
+                extraFields: { channel: source === 'widget_call' ? 'widget_call' : 'widget_chat', widgetSessionId: sessionId },
             });
             const bookingAmount = (Number(restaurant.depositAmount) || 0) * guests.n;
             const paymentLink = bookingAmount > 0 ? `${smsService.paymentBaseUrl}/payment/${created.paymentId}` : null;
@@ -633,6 +633,6 @@ export async function handleWidgetTurn({ apiKey, state, events, text, sessionId 
 export async function runWidgetTool({ name, args, state, events, sessionId, heard }) {
     const texts = [...visitorLines(events), ...(Array.isArray(heard) ? heard : [])].map((text) => String(text || '')).filter(Boolean).slice(-12);
     const prepared = detailsFromGuestLines(state || {}, texts).state;
-    return runTool(name, args || {}, prepared, texts, sessionId);
+    return runTool(name, args || {}, prepared, texts, sessionId, 'widget_call');
 }
 

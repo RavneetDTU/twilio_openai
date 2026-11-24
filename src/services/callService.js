@@ -148,6 +148,7 @@ const sendReservationToApi = async (restaurantId, paymentId, bookingData, transc
         allergies: bookingData.allergy || null,
         notes: bookingData.notes || null,
         transcription: transcriptText || null,
+        source: 'phone',
         ...(sittingId != null ? { sitting_id: sittingId } : {})
     };
 
