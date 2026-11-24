@@ -26,7 +26,9 @@ import whatsappWebhookRoutes from './src/routes/whatsappWebhook.js';
 import marketingRoutes from './src/routes/marketing.js';
 import whatsappInboxRoutes from './src/routes/whatsappInbox.js';
 import widgetRoutes from './src/routes/widget.js';
+import emailInboxRoutes from './src/routes/emailInbox.js';
 import { startMarketingWorker } from './src/services/marketing/runtime.js';
+import { startEmailWorker } from './src/services/emailBooking/runtime.js';
 import { createCallLog, patchCallLogTenant, updateCallLog } from './src/services/callService.js';
 import { rejectOpenAICall } from './src/services/openaiCallsService.js';
 import { activeSipSessions } from './src/services/realtimeSipSession.js';
@@ -789,8 +791,10 @@ app.use('/api/internal', internalRoutes);
 app.use('/api/marketing', marketingRoutes);
 app.use('/api/inbox/whatsapp', whatsappInboxRoutes);
 app.use('/api/widget', widgetRoutes);
+app.use('/api/email', emailInboxRoutes);
 
 server.listen(PORT, () => {
     console.log(`Server listening on ${PORT}`);
     startMarketingWorker();
+    startEmailWorker();
 });
